@@ -213,9 +213,20 @@ export class LightweightChartsAdapter implements IChartOverlayAdapter {
   public setBars(bars: CandleBar[]): void {
     if (!this.series || !this.chart) return;
 
-    // Deduplicate by time and ensure strictly ascending chronological order
+    // Deduplicate, validate, and ensure strictly ascending chronological order
     const barMap = new Map<number, CandleBar>();
     for (const b of bars) {
+      if (
+        typeof b.time !== 'number' || isNaN(b.time) ||
+        typeof b.open !== 'number' || isNaN(b.open) || !isFinite(b.open) ||
+        typeof b.high !== 'number' || isNaN(b.high) || !isFinite(b.high) ||
+        typeof b.low !== 'number' || isNaN(b.low) || !isFinite(b.low) ||
+        typeof b.close !== 'number' || isNaN(b.close) || !isFinite(b.close) ||
+        b.low > b.open || b.low > b.close || b.high < b.open || b.high < b.close
+      ) {
+        console.warn('[LightweightChartsAdapter] Dropping invalid/abnormal bar:', b);
+        continue;
+      }
       const integerTime = Math.floor(b.time);
       barMap.set(integerTime, { ...b, time: integerTime });
     }

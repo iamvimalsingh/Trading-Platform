@@ -34,7 +34,13 @@ export class ChartDataProvider implements IChartDataProvider {
     count: number = 120
   ): Promise<CandleBar[]> {
     const intervalSec = TIMEFRAME_SECONDS[timeframe] || 60;
-    const currentQuote = useTradingStore.getState().quotes[symbol];
+    let currentQuote = useTradingStore.getState().quotes[symbol];
+    if (!currentQuote || typeof currentQuote.mid !== 'number') {
+      const simQuote = marketSimulator.getQuote(symbol);
+      if (simQuote) {
+        currentQuote = simQuote;
+      }
+    }
     const symbolCfg = useTradingStore.getState().symbols[symbol];
     const digits = symbolCfg?.digits ?? 5;
 
