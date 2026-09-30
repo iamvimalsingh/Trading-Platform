@@ -19,12 +19,14 @@ import {
 
 interface LightweightChartProps {
   timeframe: string;
+  chartType?: 'line' | 'candlestick';
   dataProvider?: IChartDataProvider;
   interactionAdapter?: IChartInteractionAdapter;
 }
 
 export const LightweightChart: React.FC<LightweightChartProps> = ({
   timeframe,
+  chartType = 'line',
   dataProvider = defaultChartDataProvider,
   interactionAdapter,
 }) => {
@@ -85,7 +87,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
 
     const adapter = new LightweightChartsAdapter(
       containerRef.current,
-      interactionAdapter
+      interactionAdapter,
+      chartType
     );
     adapterRef.current = adapter;
 

@@ -15,10 +15,12 @@
 import {
   createChart,
   CandlestickSeries,
+  LineSeries,
   IChartApi,
   ISeriesApi,
   IPriceLine,
   CandlestickData,
+  LineData,
   Time,
   SeriesMarker,
   createSeriesMarkers,
@@ -46,6 +48,7 @@ const DEFAULT_LEVEL_COLORS: Record<PriceLevelType, string> = {
 export class LightweightChartsAdapter implements IChartOverlayAdapter {
   private chart: IChartApi | null = null;
   private series: ISeriesApi<'Candlestick'> | null = null;
+  private chartType: 'line' | 'candlestick';
   private markersPlugin: ISeriesMarkersPluginApi<Time> | null = null;
   private priceLines: Map<string, { line: IPriceLine; price: number; label: string }> = new Map();
   private bidLine: IPriceLine | null = null;
@@ -59,9 +62,11 @@ export class LightweightChartsAdapter implements IChartOverlayAdapter {
 
   constructor(
     private readonly container: HTMLElement,
-    interactionAdapter?: IChartInteractionAdapter
+    interactionAdapter?: IChartInteractionAdapter,
+    chartType: 'line' | 'candlestick' = 'line'
   ) {
     this.interactionAdapter = interactionAdapter;
+    this.chartType = chartType;
   }
 
   /**
@@ -176,13 +181,20 @@ export class LightweightChartsAdapter implements IChartOverlayAdapter {
       },
     });
 
-    this.series = this.chart.addSeries(CandlestickSeries, {
-      upColor: '#10b981',
-      downColor: '#f43f5e',
-      borderVisible: false,
-      wickUpColor: '#10b981',
-      wickDownColor: '#f43f5e',
-    });
+    if (this.chartType === 'line') {
+      this.series = this.chart.addSeries(LineSeries, {
+        color: '#3b82f6',
+        lineWidth: 2,
+      }) as unknown as ISeriesApi<'Candlestick'>;
+    } else {
+      this.series = this.chart.addSeries(CandlestickSeries, {
+        upColor: '#10b981',
+        downColor: '#f43f5e',
+        borderVisible: false,
+        wickUpColor: '#10b981',
+        wickDownColor: '#f43f5e',
+      });
+    }
 
     this.setBars(initialBars);
 
@@ -235,16 +247,25 @@ export class LightweightChartsAdapter implements IChartOverlayAdapter {
     this.currentBars = sortedBars;
     this.lastBarTime = sortedBars.length > 0 ? sortedBars[sortedBars.length - 1].time : null;
 
-    const formattedData: CandlestickData<Time>[] = sortedBars.map((b) => ({
-      time: b.time as Time,
-      open: b.open,
-      high: b.high,
-      low: b.low,
-      close: b.close,
-    }));
+    const formattedData = sortedBars.map((b) => {
+      if (this.chartType === 'line') {
+        return {
+          time: b.time as Time,
+          value: b.close,
+        };
+      } else {
+        return {
+          time: b.time as Time,
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+        };
+      }
+    });
 
     try {
-      this.series.setData(formattedData);
+      this.series.setData(formattedData as any);
       this.chart.timeScale().fitContent();
     } catch (err) {
       console.warn('[LightweightChartsAdapter] series.setData error caught:', err);
@@ -268,16 +289,18 @@ export class LightweightChartsAdapter implements IChartOverlayAdapter {
 
     // Normal path: bar is for the current active candle or a new subsequent candle
     if (integerTime >= this.lastBarTime) {
-      const updatedData: CandlestickData<Time> = {
-        time: integerTime as Time,
-        open: normalizedBar.open,
-        high: normalizedBar.high,
-        low: normalizedBar.low,
-        close: normalizedBar.close,
-      };
+      const updatedData = this.chartType === 'line'
+        ? { time: integerTime as Time, value: normalizedBar.close }
+        : {
+            time: integerTime as Time,
+            open: normalizedBar.open,
+            high: normalizedBar.high,
+            low: normalizedBar.low,
+            close: normalizedBar.close,
+          };
 
       try {
-        this.series.update(updatedData);
+        this.series.update(updatedData as any);
 
         // Maintain local bar list
         if (this.currentBars.length > 0 && this.currentBars[this.currentBars.length - 1].time === integerTime) {

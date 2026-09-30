@@ -22,6 +22,7 @@ export const MobileChartView: React.FC = () => {
   const setMobileTab = useTradingStore((state) => state.setMobileTab);
 
   const [timeframe, setTimeframe] = useState<string>('5m');
+  const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
   const [isSymbolPickerOpen, setSymbolPickerOpen] = useState<boolean>(false);
 
   const isPositive = quote ? quote.change24hPct >= 0 : true;
@@ -116,7 +117,7 @@ export const MobileChartView: React.FC = () => {
             </div>
           }
         >
-          <LightweightChartLazy timeframe={timeframe} />
+          <LightweightChartLazy timeframe={timeframe} chartType={chartType} />
         </Suspense>
       </div>
 

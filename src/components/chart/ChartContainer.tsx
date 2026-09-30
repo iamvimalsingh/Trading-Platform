@@ -16,6 +16,7 @@ export const ChartContainer: React.FC = () => {
   const quote = useTradingStore((state) => state.quotes[selectedSymbol]);
 
   const [timeframe, setTimeframe] = useState<string>('5m');
+  const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
   const [chartEngine, setChartEngine] = useState<'lightweight' | 'echarts'>('lightweight');
 
   const isPositive = quote ? quote.change24hPct >= 0 : true;
@@ -81,6 +82,30 @@ export const ChartContainer: React.FC = () => {
             </button>
           </div>
 
+          {/* Chart Type Switcher (Line vs Candle) */}
+          <div className="flex items-center bg-slate-100 dark:bg-zinc-900 p-0.5 rounded-md border border-slate-200 dark:border-zinc-800 text-[10px] font-mono">
+            <button
+              onClick={() => setChartType('line')}
+              className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                chartType === 'line'
+                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
+              }`}
+            >
+              Line
+            </button>
+            <button
+              onClick={() => setChartType('candlestick')}
+              className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                chartType === 'candlestick'
+                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
+              }`}
+            >
+              Candle
+            </button>
+          </div>
+
           {/* Timeframe Selectors */}
           <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-zinc-900 p-0.5 rounded-md border border-slate-200 dark:border-zinc-800">
             {(['1m', '5m', '15m', '1h'] as const).map((tf) => (
@@ -118,7 +143,7 @@ export const ChartContainer: React.FC = () => {
           }
         >
           {chartEngine === 'lightweight' ? (
-            <LightweightChartLazy timeframe={timeframe} />
+            <LightweightChartLazy timeframe={timeframe} chartType={chartType} />
           ) : (
             <EChartsChartLazy timeframe={timeframe} />
           )}
