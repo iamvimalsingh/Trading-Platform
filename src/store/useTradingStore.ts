@@ -69,6 +69,7 @@ export interface TradingState {
   componentRenderCounts: Record<string, number>;
 
   // UI State
+  theme: 'light' | 'dark';
   activeTab: 'positions' | 'orders' | 'history' | 'benchmark';
   mobileTab: 'quotes' | 'chart' | 'trade' | 'positions' | 'history';
   isMobileAccountDrawerOpen: boolean;
@@ -95,6 +96,8 @@ export interface TradingState {
   updatePositionSLTP: (positionId: string, stopLoss?: number, takeProfit?: number) => void;
 
   // UI Actions
+  setTheme: (theme: 'light' | 'dark') => void;
+  toggleTheme: () => void;
   setActiveTab: (tab: 'positions' | 'orders' | 'history' | 'benchmark') => void;
   setMobileTab: (tab: 'quotes' | 'chart' | 'trade' | 'positions' | 'history') => void;
   setMobileAccountDrawerOpen: (open: boolean) => void;
@@ -105,11 +108,29 @@ export interface TradingState {
   resetAccount: () => void;
 }
 
+const getInitialTheme = (): 'light' | 'dark' => {
+  if (typeof localStorage !== 'undefined' || typeof window !== 'undefined') {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const saved = localStorage.getItem('trading_terminal_theme');
+        if (saved === 'dark' || saved === 'light') {
+          return saved;
+        }
+      }
+    } catch {
+      // Storage unavailable
+    }
+  }
+  return 'light';
+};
+
 export const useTradingStore = create<TradingState>((set, get) => {
   const initialSymbolsMap: Record<string, SymbolConfig> = {};
   for (const s of ALL_SYMBOLS) {
     initialSymbolsMap[s.symbol] = s;
   }
+
+  const initialTheme = getInitialTheme();
 
   return {
     socketStatus: 'DISCONNECTED',
@@ -143,6 +164,7 @@ export const useTradingStore = create<TradingState>((set, get) => {
     fps: 60,
     componentRenderCounts: {},
 
+    theme: initialTheme,
     activeTab: 'positions',
     mobileTab: 'quotes',
     isMobileAccountDrawerOpen: false,
@@ -340,6 +362,34 @@ export const useTradingStore = create<TradingState>((set, get) => {
       }));
       // Authoritative update on server
       tradingSocket.modifyPosition(positionId, stopLoss, takeProfit);
+    },
+
+    setTheme: (theme: 'light' | 'dark') => {
+      if (typeof localStorage !== 'undefined' || typeof window !== 'undefined') {
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('trading_terminal_theme', theme);
+          }
+          if (typeof document !== 'undefined' && document.documentElement) {
+            document.documentElement.setAttribute('data-theme', theme);
+            if (theme === 'dark') {
+              document.documentElement.classList.add('dark');
+              if (document.body) document.body.classList.add('dark');
+            } else {
+              document.documentElement.classList.remove('dark');
+              if (document.body) document.body.classList.remove('dark');
+            }
+          }
+        } catch {
+          // Storage unavailable
+        }
+      }
+      set({ theme });
+    },
+
+    toggleTheme: () => {
+      const nextTheme = get().theme === 'dark' ? 'light' : 'dark';
+      get().setTheme(nextTheme);
     },
 
     setActiveTab: (tab) => set({ activeTab: tab }),

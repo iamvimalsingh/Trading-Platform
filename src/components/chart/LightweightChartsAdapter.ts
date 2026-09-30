@@ -113,34 +113,64 @@ export class LightweightChartsAdapter implements IChartOverlayAdapter {
   }
 
   /**
+   * Applies light or dark theme styling to the chart canvas, grid, and price scales.
+   */
+  public applyTheme(theme: 'light' | 'dark'): void {
+    if (!this.chart) return;
+    const isLight = theme === 'light';
+    this.chart.applyOptions({
+      layout: {
+        background: { color: isLight ? '#ffffff' : '#09090b' },
+        textColor: isLight ? '#64748b' : '#a1a1aa',
+      },
+      grid: {
+        vertLines: { color: isLight ? '#f1f5f9' : '#18181b' },
+        horzLines: { color: isLight ? '#f1f5f9' : '#18181b' },
+      },
+      crosshair: {
+        vertLine: { color: isLight ? '#94a3b8' : '#3f3f46', width: 1, style: 2 },
+        horzLine: { color: isLight ? '#94a3b8' : '#3f3f46', width: 1, style: 2 },
+      },
+      rightPriceScale: {
+        borderColor: isLight ? '#e2e8f0' : '#27272a',
+      },
+      timeScale: {
+        borderColor: isLight ? '#e2e8f0' : '#27272a',
+      },
+    });
+  }
+
+  /**
    * Initializes the chart engine with normalized baseline bars.
    */
-  public init(initialBars: CandleBar[]): void {
+  public init(initialBars: CandleBar[], theme: 'light' | 'dark' = 'dark'): void {
     if (!this.container) return;
 
-    // Initialize chart with professional dark theme
+    const isLight = theme === 'light';
+
+    // Initialize chart with professional theme
     // NOTE: attributionLogo is intentionally NOT set to false. Default attribution is preserved.
     this.chart = createChart(this.container, {
       width: this.container.clientWidth || 600,
       height: this.container.clientHeight || 400,
       layout: {
-        background: { color: '#09090b' },
-        textColor: '#71717a',
+        background: { color: isLight ? '#ffffff' : '#09090b' },
+        textColor: isLight ? '#64748b' : '#a1a1aa',
       },
       grid: {
-        vertLines: { color: '#18181b' },
-        horzLines: { color: '#18181b' },
+        vertLines: { color: isLight ? '#f1f5f9' : '#18181b' },
+        horzLines: { color: isLight ? '#f1f5f9' : '#18181b' },
       },
       crosshair: {
-        vertLine: { color: '#3f3f46', width: 1, style: 2 },
-        horzLine: { color: '#3f3f46', width: 1, style: 2 },
+        vertLine: { color: isLight ? '#94a3b8' : '#3f3f46', width: 1, style: 2 },
+        horzLine: { color: isLight ? '#94a3b8' : '#3f3f46', width: 1, style: 2 },
       },
       rightPriceScale: {
-        borderColor: '#27272a',
+        borderColor: isLight ? '#e2e8f0' : '#27272a',
         scaleMargins: { top: 0.1, bottom: 0.15 },
       },
       timeScale: {
-        borderColor: '#27272a',
+        borderColor: isLight ? '#e2e8f0' : '#27272a',
         timeVisible: true,
         secondsVisible: false,
       },

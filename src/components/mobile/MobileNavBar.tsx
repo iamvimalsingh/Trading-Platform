@@ -32,7 +32,7 @@ export const MobileNavBar: React.FC = () => {
   ];
 
   return (
-    <nav className="h-14 shrink-0 bg-zinc-950/95 backdrop-blur border-t border-zinc-800/80 flex items-stretch justify-around select-none z-30 pb-[env(safe-area-inset-bottom,0px)]">
+    <nav className="h-14 shrink-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border-t border-slate-200 dark:border-zinc-800/80 flex items-stretch justify-around select-none z-30 pb-[env(safe-area-inset-bottom,0px)] transition-colors">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = mobileTab === tab.id;
@@ -43,20 +43,20 @@ export const MobileNavBar: React.FC = () => {
             onClick={() => setMobileTab(tab.id)}
             className={`flex-1 flex flex-col items-center justify-center gap-1 min-h-[48px] cursor-pointer transition-colors relative ${
               isActive
-                ? 'text-blue-400 font-semibold'
-                : 'text-zinc-400 hover:text-zinc-200 active:text-zinc-100'
+                ? 'text-blue-600 dark:text-blue-400 font-bold'
+                : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 active:text-slate-950 dark:active:text-zinc-100'
             }`}
           >
             {/* Active Top Glow Line */}
             {isActive && (
-              <span className="absolute top-0 left-2 right-2 h-0.5 bg-blue-500 rounded-full shadow-sm shadow-blue-500/50" />
+              <span className="absolute top-0 left-2 right-2 h-0.5 bg-blue-600 dark:bg-blue-500 rounded-full shadow-sm shadow-blue-500/50" />
             )}
 
             <div className="relative">
               <Icon
                 className={`w-5 h-5 transition-transform ${
                   isActive ? 'scale-110' : ''
-                } ${tab.highlight && !isActive ? 'text-amber-400' : ''}`}
+                } ${tab.highlight && !isActive ? 'text-amber-500 dark:text-amber-400' : ''}`}
               />
 
               {/* Positions Count Badge */}

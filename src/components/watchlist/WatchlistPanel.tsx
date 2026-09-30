@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Filter, Search, SlidersHorizontal } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { AssetCategory } from '../../types/trading';
 import { useTradingStore } from '../../store/useTradingStore';
 import { WatchlistItem } from './WatchlistItem';
@@ -29,19 +29,21 @@ export const WatchlistPanel: React.FC = () => {
   }, [activeSymbolList, search, categoryFilter]);
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 border-r border-zinc-800/80 select-none">
+    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 border-r border-slate-200 dark:border-zinc-800/80 select-none transition-colors">
       {/* Watchlist Header & Search */}
-      <div className="p-2.5 border-b border-zinc-800/80 flex flex-col gap-2">
+      <div className="p-2.5 border-b border-slate-200 dark:border-zinc-800/80 flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">Watchlist</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
+            <span className="text-xs font-bold text-slate-800 dark:text-zinc-200 uppercase tracking-wider font-sans">
+              Market Watch
+            </span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800">
               {filteredSymbols.length}/{activeSymbolList.length}
             </span>
           </div>
 
           {/* Quick 10/25/50 Symbol Scaling Selector for Performance Spike */}
-          <div className="flex items-center gap-1 bg-zinc-900 p-0.5 rounded border border-zinc-800">
+          <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-zinc-900 p-0.5 rounded-lg border border-slate-200 dark:border-zinc-800">
             {([10, 25, 50] as const).map((count) => (
               <button
                 key={count}
@@ -49,7 +51,7 @@ export const WatchlistPanel: React.FC = () => {
                 className={`px-1.5 py-0.5 text-[10px] font-mono font-medium rounded transition-colors cursor-pointer ${
                   activeSymbolCount === count
                     ? 'bg-blue-600 text-white font-bold'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
                 }`}
                 title={`Scale active market feed to ${count} symbols`}
               >
@@ -61,26 +63,26 @@ export const WatchlistPanel: React.FC = () => {
 
         {/* Search Bar */}
         <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
           <input
             type="text"
             placeholder="Search symbol (e.g. XAU, EUR)..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-blue-500 rounded pl-8 pr-2.5 py-1 text-xs text-zinc-200 placeholder-zinc-500 outline-none font-sans"
+            className="w-full bg-slate-50 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:border-blue-500 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-slate-900 dark:text-zinc-200 placeholder-slate-400 dark:placeholder-zinc-500 outline-none font-sans"
           />
         </div>
 
-        {/* Category Pills */}
+        {/* Category Selector Tabs */}
         <div className="flex items-center gap-1 overflow-x-auto scrollbar-none text-[10px] pt-0.5">
           {(['ALL', 'FOREX', 'CRYPTO', 'METALS', 'INDICES'] as const).map((cat) => (
             <button
               key={cat}
               onClick={() => setCategoryFilter(cat)}
-              className={`px-2 py-0.5 rounded text-[10px] whitespace-nowrap transition-colors cursor-pointer ${
+              className={`px-2 py-0.5 rounded-md text-[10px] font-sans font-medium whitespace-nowrap transition-colors cursor-pointer ${
                 categoryFilter === cat
-                  ? 'bg-zinc-800 text-zinc-100 font-semibold border border-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+                  ? 'bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 font-semibold border border-slate-300 dark:border-zinc-700'
+                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-900'
               }`}
             >
               {cat}
@@ -90,13 +92,13 @@ export const WatchlistPanel: React.FC = () => {
       </div>
 
       {/* Virtualized/Optimized Scrollable List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-zinc-900/30">
+      <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-zinc-900/40">
         {filteredSymbols.length > 0 ? (
           filteredSymbols.map((cfg) => (
             <WatchlistItem key={cfg.symbol} symbolConfig={cfg} />
           ))
         ) : (
-          <div className="p-6 text-center text-xs text-zinc-500 font-sans">
+          <div className="p-6 text-center text-xs text-slate-400 dark:text-zinc-500 font-sans">
             No symbols match your filter.
           </div>
         )}

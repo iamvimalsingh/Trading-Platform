@@ -27,11 +27,26 @@ export default function App() {
   const setActiveTab = useTradingStore((state) => state.setActiveTab);
   const mobileTab = useTradingStore((state) => state.mobileTab);
   const isPerfLabOpen = useTradingStore((state) => state.isPerfLabOpen);
+  const theme = useTradingStore((state) => state.theme);
   const openPositionsCount = useTradingStore(
     (state) => state.positions.filter((p) => p.status === 'OPEN').length
   );
   const ordersCount = useTradingStore((state) => state.orders.length);
   const closedCount = useTradingStore((state) => state.closedTrades.length);
+
+  // Sync theme class on document element and body
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', theme);
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+        if (document.body) document.body.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        if (document.body) document.body.classList.remove('dark');
+      }
+    }
+  }, [theme]);
 
   // Desktop Bottom Trading Dock Resizing & Layout State
   const [dockHeight, setDockHeight] = useState<number>(() => {
@@ -45,7 +60,6 @@ export default function App() {
     } catch {
       // Fallback
     }
-    // Smart default: 180px on 720p/768p screens, 220px on larger screens
     return typeof window !== 'undefined' && window.innerHeight <= 768 ? 180 : 220;
   });
 
@@ -195,7 +209,12 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen h-[100dvh] w-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans select-none">
+    <div
+      data-theme={theme}
+      className={`flex flex-col h-screen h-[100dvh] w-screen overflow-hidden bg-slate-100 dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 font-sans select-none transition-colors ${
+        theme === 'dark' ? 'dark' : ''
+      }`}
+    >
       {/* 1. Top Header with Live Real-time Balance / Equity / Free Margin */}
       <TerminalHeader />
 
@@ -227,7 +246,7 @@ export default function App() {
       {/* ================================================================= */}
       <div className="hidden lg:flex flex-1 flex-col overflow-hidden min-h-0">
         {/* 2. Middle Trading Workspace (Watchlist + Chart + Order Ticket) */}
-        <div className="flex-1 flex overflow-hidden border-b border-zinc-800/80 min-h-0">
+        <div className="flex-1 flex overflow-hidden border-b border-slate-200 dark:border-zinc-800/80 min-h-0">
           {/* Left: Watchlist & Symbol Selector */}
           <aside className="w-64 xl:w-72 shrink-0 h-full">
             <WatchlistPanel />
@@ -239,7 +258,7 @@ export default function App() {
           </main>
 
           {/* Right: Quick Buy/Sell Order Ticket */}
-          <aside className="w-72 xl:w-80 shrink-0 h-full border-l border-zinc-800/80">
+          <aside className="w-72 xl:w-80 shrink-0 h-full border-l border-slate-200 dark:border-zinc-800/80">
             <OrderTicket />
           </aside>
         </div>
@@ -247,34 +266,34 @@ export default function App() {
         {/* Resize Divider Handle between Middle Workspace and Bottom Dock */}
         <div
           onMouseDown={handleStartResize}
-          className={`h-1.5 shrink-0 bg-zinc-900 hover:bg-blue-500/70 active:bg-blue-500 transition-colors cursor-row-resize flex items-center justify-center group select-none relative z-10 border-t border-zinc-800/80 ${
+          className={`h-1.5 shrink-0 bg-slate-200 dark:bg-zinc-900 hover:bg-blue-500 active:bg-blue-600 transition-colors cursor-row-resize flex items-center justify-center group select-none relative z-10 border-t border-slate-200 dark:border-zinc-800/80 ${
             isDraggingDock ? 'bg-blue-500 shadow-md shadow-blue-500/30' : ''
           }`}
           title="Drag up/down to resize bottom trading dock"
         >
-          <div className="w-10 h-0.5 rounded-full bg-zinc-600 group-hover:bg-blue-200 transition-colors" />
+          <div className="w-10 h-0.5 rounded-full bg-slate-400 dark:bg-zinc-600 group-hover:bg-white transition-colors" />
         </div>
 
         {/* 3. Bottom Execution & Portfolio Management Dock */}
         <div
           style={{ height: isDockCollapsed ? 36 : dockHeight }}
-          className={`shrink-0 flex flex-col bg-zinc-950 ${
+          className={`shrink-0 flex flex-col bg-white dark:bg-zinc-950 ${
             isDraggingDock ? 'select-none transition-none' : 'transition-[height] duration-150'
           }`}
         >
           {/* Bottom Tab Bar */}
-          <div className="h-9 px-3 sm:px-4 bg-zinc-950 border-b border-zinc-800/80 flex items-center justify-between shrink-0">
+          <div className="h-9 px-3 sm:px-4 bg-slate-50 dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800/80 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-1">
               <button
                 onClick={() => handleTabClick('positions')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-t transition-colors cursor-pointer flex items-center gap-1.5 ${
                   activeTab === 'positions'
-                    ? 'bg-zinc-900 text-blue-400 border-b-2 border-blue-500'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-500'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
                 }`}
               >
                 <span>Positions</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-800 text-zinc-300 font-mono">
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-mono">
                   {openPositionsCount}
                 </span>
               </button>
@@ -283,12 +302,12 @@ export default function App() {
                 onClick={() => handleTabClick('orders')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-t transition-colors cursor-pointer flex items-center gap-1.5 ${
                   activeTab === 'orders'
-                    ? 'bg-zinc-900 text-blue-400 border-b-2 border-blue-500'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-500'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
                 }`}
               >
                 <span>Orders</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-800 text-zinc-300 font-mono">
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-mono">
                   {ordersCount}
                 </span>
               </button>
@@ -297,12 +316,12 @@ export default function App() {
                 onClick={() => handleTabClick('history')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-t transition-colors cursor-pointer flex items-center gap-1.5 ${
                   activeTab === 'history'
-                    ? 'bg-zinc-900 text-blue-400 border-b-2 border-blue-500'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-500'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
                 }`}
               >
                 <span>Trade History</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-800 text-zinc-300 font-mono">
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-mono">
                   {closedCount}
                 </span>
               </button>
@@ -311,8 +330,8 @@ export default function App() {
                 onClick={() => handleTabClick('benchmark')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-t transition-colors cursor-pointer flex items-center gap-1.5 ${
                   activeTab === 'benchmark'
-                    ? 'bg-zinc-900 text-blue-400 border-b-2 border-blue-500'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-500'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
                 }`}
               >
                 <span>Account Ledger</span>
@@ -323,12 +342,12 @@ export default function App() {
             <div className="flex items-center gap-1">
               <button
                 onClick={toggleDockCollapse}
-                className="px-2 py-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer text-xs flex items-center gap-1"
+                className="px-2 py-1 rounded-md hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 transition-colors cursor-pointer text-xs flex items-center gap-1"
                 title={isDockCollapsed ? 'Expand panel' : 'Collapse panel'}
               >
                 {isDockCollapsed ? (
                   <>
-                    <ChevronUp className="w-3.5 h-3.5 text-blue-400" />
+                    <ChevronUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                     <span className="text-[10px] hidden sm:inline">Expand</span>
                   </>
                 ) : (
@@ -342,12 +361,12 @@ export default function App() {
               <button
                 onClick={toggleDockMaximize}
                 disabled={isDockCollapsed}
-                className="px-2 py-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="px-2 py-1 rounded-md hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 transition-colors cursor-pointer text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
                 title={isDockMaximized ? 'Restore normal height' : 'Maximize panel'}
               >
                 {isDockMaximized ? (
                   <>
-                    <Minimize2 className="w-3.5 h-3.5 text-blue-400" />
+                    <Minimize2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                     <span className="text-[10px] hidden sm:inline">Restore</span>
                   </>
                 ) : (
@@ -362,7 +381,7 @@ export default function App() {
 
           {/* Tab Content Display */}
           {!isDockCollapsed && (
-            <div className="flex-1 overflow-y-auto bg-zinc-950 min-h-0">
+            <div className="flex-1 overflow-y-auto bg-white dark:bg-zinc-950 min-h-0">
               {activeTab === 'positions' && <PositionsTable />}
               {activeTab === 'orders' && <TradeHistoryTable view="orders" />}
               {activeTab === 'history' && <TradeHistoryTable view="history" />}

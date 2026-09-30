@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, CheckCircle, Gauge, HardDrive, RefreshCw, X, Zap } from 'lucide-react';
+import { CheckCircle, X, Zap } from 'lucide-react';
 import { useTradingStore } from '../../store/useTradingStore';
 import { marketSimulator } from '../../services/marketDataSimulator';
 
@@ -52,19 +52,19 @@ export const PerformanceLabModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 select-none animate-in fade-in duration-150">
-      <div className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden flex flex-col font-mono text-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 select-none animate-in fade-in duration-150">
+      <div className="w-full max-w-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col font-mono text-xs text-slate-800 dark:text-zinc-100">
         {/* Header */}
-        <div className="px-4 py-3 bg-zinc-900 border-b border-zinc-800 flex items-center justify-between">
+        <div className="px-4 py-3 bg-slate-50 dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-400" />
-            <span className="font-bold text-sm text-zinc-100 font-sans tracking-tight">
-              T1 Performance Spike & Benchmark Lab
+            <Zap className="w-4 h-4 text-amber-500" />
+            <span className="font-bold text-sm text-slate-900 dark:text-zinc-100 font-sans tracking-tight">
+              Performance Spike & Benchmark Lab
             </span>
           </div>
           <button
             onClick={togglePerfLab}
-            className="p-1 rounded bg-zinc-800 text-zinc-400 hover:text-zinc-100 transition-colors cursor-pointer"
+            className="p-1 rounded-lg bg-slate-200 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -75,60 +75,60 @@ export const PerformanceLabModal: React.FC = () => {
           {/* Live Telemetry Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {/* FPS */}
-            <div className="p-3 rounded bg-zinc-900/80 border border-zinc-800 flex flex-col">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-sans">
-                Render Frame Rate
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800 flex flex-col">
+              <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-sans font-medium">
+                Frame Rate
               </span>
               <span
                 className={`text-xl font-bold mt-1 ${
-                  fps >= 55 ? 'text-emerald-400' : 'text-amber-400'
+                  fps >= 55 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
                 }`}
               >
                 {fps} FPS
               </span>
-              <span className="text-[10px] text-zinc-500 font-sans mt-0.5">Target: 60 FPS</span>
+              <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-sans mt-0.5">Target: 60 FPS</span>
             </div>
 
             {/* Tick Throughput */}
-            <div className="p-3 rounded bg-zinc-900/80 border border-zinc-800 flex flex-col">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-sans">
-                Tick Throughput
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800 flex flex-col">
+              <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-sans font-medium">
+                Throughput
               </span>
-              <span className="text-xl font-bold text-blue-400 mt-1">
+              <span className="text-xl font-bold text-blue-600 dark:text-blue-400 mt-1">
                 {tickRate} <span className="text-xs font-normal">ticks/s</span>
               </span>
-              <span className="text-[10px] text-zinc-500 font-sans mt-0.5">
+              <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-sans mt-0.5">
                 Total: {ticksReceivedCount.toLocaleString()}
               </span>
             </div>
 
             {/* Active Symbol Concurrency */}
-            <div className="p-3 rounded bg-zinc-900/80 border border-zinc-800 flex flex-col">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-sans">
-                Symbol Concurrency
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800 flex flex-col">
+              <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-sans font-medium">
+                Concurrency
               </span>
-              <span className="text-xl font-bold text-purple-400 mt-1">
+              <span className="text-xl font-bold text-purple-600 dark:text-purple-400 mt-1">
                 {activeSymbolCount} <span className="text-xs font-normal">pairs</span>
               </span>
-              <span className="text-[10px] text-zinc-500 font-sans mt-0.5">Streaming L1</span>
+              <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-sans mt-0.5">Streaming L1</span>
             </div>
 
             {/* Memory JS Heap */}
-            <div className="p-3 rounded bg-zinc-900/80 border border-zinc-800 flex flex-col">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-sans">
-                JS Heap Usage
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800 flex flex-col">
+              <span className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-sans font-medium">
+                JS Heap
               </span>
-              <span className="text-xl font-bold text-zinc-200 mt-1">{memoryHeapMb}</span>
-              <span className="text-[10px] text-zinc-500 font-sans mt-0.5">Budget: &lt; 45 MB</span>
+              <span className="text-xl font-bold text-slate-800 dark:text-zinc-200 mt-1">{memoryHeapMb}</span>
+              <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-sans mt-0.5">Budget: &lt; 45 MB</span>
             </div>
           </div>
 
           {/* Interactive Stress Test Controls */}
-          <div className="p-3 rounded bg-zinc-900/50 border border-zinc-800 flex flex-col gap-2.5">
-            <span className="font-semibold text-zinc-200 font-sans">
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800 flex flex-col gap-2.5">
+            <span className="font-semibold text-slate-900 dark:text-zinc-200 font-sans">
               1. Symbol Scaling Load Test (10 vs 25 vs 50 Symbols)
             </span>
-            <p className="text-[11px] text-zinc-400 font-sans leading-relaxed">
+            <p className="text-[11px] text-slate-600 dark:text-zinc-400 font-sans leading-relaxed">
               Verify that increasing live active symbols from 10 to 50 does not degrade UI frame rate or create stutter in React 19 concurrent tree.
             </p>
             <div className="grid grid-cols-3 gap-2">
@@ -136,14 +136,14 @@ export const PerformanceLabModal: React.FC = () => {
                 <button
                   key={cnt}
                   onClick={() => setActiveSymbolCount(cnt)}
-                  className={`py-2 px-3 rounded text-center border transition-all cursor-pointer ${
+                  className={`py-2 px-3 rounded-lg text-center border transition-all cursor-pointer ${
                     activeSymbolCount === cnt
-                      ? 'bg-blue-600/30 border-blue-500 text-blue-200 font-bold shadow-sm'
-                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      ? 'bg-blue-600 text-white font-bold shadow-xs border-blue-600'
+                      : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-400 hover:bg-slate-100 dark:hover:text-zinc-200'
                   }`}
                 >
-                  <div className="text-sm">{cnt} Symbols</div>
-                  <div className="text-[10px] text-zinc-500 font-sans">
+                  <div className="text-sm font-bold">{cnt} Symbols</div>
+                  <div className={`text-[10px] font-sans ${activeSymbolCount === cnt ? 'text-blue-100' : 'text-slate-400 dark:text-zinc-500'}`}>
                     {cnt === 10 ? 'Standard Load' : cnt === 25 ? 'Medium Stress' : 'Peak 50x Stream'}
                   </div>
                 </button>
@@ -152,8 +152,8 @@ export const PerformanceLabModal: React.FC = () => {
           </div>
 
           {/* Feed Frequency Control */}
-          <div className="p-3 rounded bg-zinc-900/50 border border-zinc-800 flex flex-col gap-2.5">
-            <span className="font-semibold text-zinc-200 font-sans">
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800 flex flex-col gap-2.5">
+            <span className="font-semibold text-slate-900 dark:text-zinc-200 font-sans">
               2. Simulated Feed Throttle / Burst Interval
             </span>
             <div className="grid grid-cols-3 gap-2">
@@ -165,38 +165,38 @@ export const PerformanceLabModal: React.FC = () => {
                 <button
                   key={item.ms}
                   onClick={() => handleSpeedChange(item.ms)}
-                  className={`py-2 px-3 rounded text-center border transition-all cursor-pointer ${
+                  className={`py-2 px-3 rounded-lg text-center border transition-all cursor-pointer ${
                     speedInterval === item.ms
-                      ? 'bg-purple-600/30 border-purple-500 text-purple-200 font-bold'
-                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      ? 'bg-purple-600 text-white font-bold border-purple-600 shadow-xs'
+                      : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-400 hover:bg-slate-100 dark:hover:text-zinc-200'
                   }`}
                 >
-                  <div className="text-xs">{item.label}</div>
-                  <div className="text-[10px] text-zinc-500 font-sans">{item.desc}</div>
+                  <div className="text-xs font-bold">{item.label}</div>
+                  <div className={`text-[10px] font-sans ${speedInterval === item.ms ? 'text-purple-100' : 'text-slate-400 dark:text-zinc-500'}`}>{item.desc}</div>
                 </button>
               ))}
             </div>
           </div>
 
           {/* Performance Spike Audit Checklist */}
-          <div className="p-3 rounded bg-zinc-900/50 border border-zinc-800 flex flex-col gap-2 font-sans">
-            <span className="font-semibold text-zinc-200">
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800 flex flex-col gap-2 font-sans">
+            <span className="font-semibold text-slate-900 dark:text-zinc-200">
               3. T0 Performance Budget Verifications (Automated Checks)
             </span>
             <div className="space-y-1.5 text-xs">
-              <div className="flex items-center gap-2 text-emerald-400">
+              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle className="w-4 h-4 shrink-0" />
                 <span>Zero Blank Screen: Initial shell renders in &lt; 150ms with skeleton wireframe.</span>
               </div>
-              <div className="flex items-center gap-2 text-emerald-400">
+              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle className="w-4 h-4 shrink-0" />
                 <span>Lazy Chart Loading: TradingView Lightweight Charts (~45KB) chunks dynamically.</span>
               </div>
-              <div className="flex items-center gap-2 text-emerald-400">
+              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle className="w-4 h-4 shrink-0" />
                 <span>Isolated Component Re-renders: Quotes update with granular atom selectors.</span>
               </div>
-              <div className="flex items-center gap-2 text-emerald-400">
+              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle className="w-4 h-4 shrink-0" />
                 <span>Fast Order Execution: Pre-trade risk check and local position fill in &lt; 5ms.</span>
               </div>
@@ -205,13 +205,13 @@ export const PerformanceLabModal: React.FC = () => {
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2.5 bg-zinc-900 border-t border-zinc-800 flex items-center justify-between">
-          <span className="text-[10px] text-zinc-500">
-            Project B Engineering Diagnostic Console
+        <div className="px-4 py-2.5 bg-slate-50 dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800 flex items-center justify-between">
+          <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-sans">
+            Engineering Diagnostic Console
           </span>
           <button
             onClick={togglePerfLab}
-            className="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold cursor-pointer transition-colors"
+            className="px-3.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 text-xs font-semibold cursor-pointer transition-colors"
           >
             Close Lab
           </button>

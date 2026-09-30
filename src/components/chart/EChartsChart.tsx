@@ -104,7 +104,7 @@ export const EChartsChart: React.FC<EChartsChartProps> = ({
       .then((bars) => {
         if (isCancelled) return;
         adapter.init(bars);
-        adapter.setPriceLevels(activeLevels);
+        adapter.setPriceLevels([]);
         setMetrics(adapter.getMetrics());
 
         // Subscribe to live bar streaming updates
@@ -130,10 +130,10 @@ export const EChartsChart: React.FC<EChartsChartProps> = ({
     };
   }, [selectedSymbol, timeframe, dataProvider, interactionAdapter]);
 
-  // Synchronize trading overlay levels when open positions change
+  // Clean chart rule: keep price levels empty by default
   useEffect(() => {
     if (adapterRef.current) {
-      adapterRef.current.setPriceLevels(activeLevels);
+      adapterRef.current.setPriceLevels([]);
     }
   }, [activeLevels]);
 
@@ -147,17 +147,17 @@ export const EChartsChart: React.FC<EChartsChartProps> = ({
   return (
     <div className="w-full h-full relative flex flex-col">
       {/* ECharts Telemetry & POC Status Overlay Bar */}
-      <div className="absolute top-2 left-2 z-10 flex items-center gap-2 bg-zinc-900/90 border border-zinc-700/60 rounded px-2 py-1 text-[10px] font-mono text-zinc-300 shadow-lg backdrop-blur-xs pointer-events-none">
-        <span className="flex items-center gap-1 text-amber-400 font-semibold">
+      <div className="absolute top-2 left-2 z-10 flex items-center gap-2 bg-white/90 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-700/60 rounded-md px-2 py-1 text-[10px] font-mono text-slate-700 dark:text-zinc-300 shadow-lg backdrop-blur-xs pointer-events-none">
+        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
           <Activity className="w-3 h-3" />
           Apache ECharts POC
         </span>
-        <span className="text-zinc-600">|</span>
-        <span className="text-zinc-400">Init: {metrics.initRenderTimeMs}ms</span>
-        <span className="text-zinc-600">|</span>
-        <span className="text-zinc-400">Latency: {metrics.lastUpdateLatencyMs}ms</span>
-        <span className="text-zinc-600">|</span>
-        <span className="text-zinc-400">Ticks: {metrics.totalTicksRendered}</span>
+        <span className="text-slate-300 dark:text-zinc-600">|</span>
+        <span className="text-slate-500 dark:text-zinc-400">Init: {metrics.initRenderTimeMs}ms</span>
+        <span className="text-slate-300 dark:text-zinc-600">|</span>
+        <span className="text-slate-500 dark:text-zinc-400">Latency: {metrics.lastUpdateLatencyMs}ms</span>
+        <span className="text-slate-300 dark:text-zinc-600">|</span>
+        <span className="text-slate-500 dark:text-zinc-400">Ticks: {metrics.totalTicksRendered}</span>
       </div>
 
       {/* Chart DOM Container */}

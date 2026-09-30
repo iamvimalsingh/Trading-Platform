@@ -34,6 +34,7 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   const selectedSymbol = useTradingStore((state) => state.selectedSymbol);
   const quote = useTradingStore((state) => state.quotes[selectedSymbol]);
   const positions = useTradingStore((state) => state.positions);
+  const theme = useTradingStore((state) => state.theme);
 
   // Derive active trading price levels for the selected instrument
   const activeLevels = useMemo(() => {
@@ -96,8 +97,8 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
       .getHistoricalBars(selectedSymbol, timeframe, 120)
       .then((bars) => {
         if (isCancelled) return;
-        adapter.init(bars);
-        adapter.setPriceLevels(activeLevels);
+        adapter.init(bars, theme);
+        adapter.setPriceLevels([]);
 
         // Subscribe to live bar streaming updates
         unsubscribeBarStream = dataProvider.subscribeBarUpdates(
@@ -121,10 +122,17 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     };
   }, [selectedSymbol, timeframe, dataProvider, interactionAdapter]);
 
-  // Synchronize trading overlay levels when open positions change
+  // Synchronize theme changes without recreating chart canvas or reloading bars
   useEffect(() => {
     if (adapterRef.current) {
-      adapterRef.current.setPriceLevels(activeLevels);
+      adapterRef.current.applyTheme(theme);
+    }
+  }, [theme]);
+
+  // Clean chart rule: keep price levels empty by default
+  useEffect(() => {
+    if (adapterRef.current) {
+      adapterRef.current.setPriceLevels([]);
     }
   }, [activeLevels]);
 

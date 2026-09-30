@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * MOBILE TRADE VIEW (T3A)
+ * MOBILE TRADE VIEW (T3A / UI POLISH 1.0)
  * Touch-optimized execution ticket with MARKET, LIMIT, and STOP support,
  * big 50px+ Buy/Sell quote buttons, volume stepper, and SL/TP configuration.
  */
@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
+  Minus,
+  Plus,
   ShieldAlert,
 } from 'lucide-react';
 import { OrderSide, OrderType } from '../../types/trading';
@@ -37,6 +39,7 @@ export const MobileTradeView: React.FC = () => {
   const [useTP, setUseTP] = useState<boolean>(false);
   const [takeProfit, setTakeProfit] = useState<string>('');
   const [isSymbolPickerOpen, setSymbolPickerOpen] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const [lastNotification, setLastNotification] = useState<{
     type: 'SUCCESS' | 'ERROR';
@@ -81,6 +84,8 @@ export const MobileTradeView: React.FC = () => {
   const hasEnoughMargin = requiredMargin <= account.freeMargin;
 
   const handleExecute = async (side: OrderSide) => {
+    if (isSubmitting) return;
+
     if (!symbolCfg) {
       setLastNotification({ type: 'ERROR', message: 'No symbol config available' });
       return;
@@ -122,32 +127,37 @@ export const MobileTradeView: React.FC = () => {
     const slVal = useSL && stopLoss.trim() !== '' ? parseFloat(stopLoss) : undefined;
     const tpVal = useTP && takeProfit.trim() !== '' ? parseFloat(takeProfit) : undefined;
 
-    const result = await placeOrder({
-      symbol: selectedSymbol,
-      side,
-      type: orderType,
-      volume,
-      requestedPrice: parsedPrice,
-      stopLoss: slVal,
-      takeProfit: tpVal,
-    });
-
-    if (result.success) {
-      const isWorking = result.order.status === 'WORKING';
-      const msg = isWorking
-        ? `Placed ${orderType} ${side} ${volume} ${selectedSymbol} @ ${result.order.requestedPrice}`
-        : `Filled ${side} ${volume} ${selectedSymbol} @ ${result.order.executionPrice}`;
-
-      setLastNotification({
-        type: 'SUCCESS',
-        message: msg,
+    try {
+      setIsSubmitting(true);
+      const result = await placeOrder({
+        symbol: selectedSymbol,
+        side,
+        type: orderType,
+        volume,
+        requestedPrice: parsedPrice,
+        stopLoss: slVal,
+        takeProfit: tpVal,
       });
-      setTimeout(() => setLastNotification(null), 5000);
-    } else {
-      setLastNotification({
-        type: 'ERROR',
-        message: result.error || 'Order rejected by risk engine',
-      });
+
+      if (result.success) {
+        const isWorking = result.order.status === 'WORKING';
+        const msg = isWorking
+          ? `Placed ${orderType} ${side} ${volume.toFixed(2)}L ${selectedSymbol} @ ${result.order.requestedPrice.toFixed(symbolCfg.digits)}`
+          : `Filled ${side} ${volume.toFixed(2)}L ${selectedSymbol} @ ${result.order.executionPrice.toFixed(symbolCfg.digits)}`;
+
+        setLastNotification({
+          type: 'SUCCESS',
+          message: msg,
+        });
+        setTimeout(() => setLastNotification(null), 4000);
+      } else {
+        setLastNotification({
+          type: 'ERROR',
+          message: result.error || 'Order rejected by risk engine',
+        });
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -170,27 +180,28 @@ export const MobileTradeView: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 p-4 select-none overflow-y-auto">
+    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 p-4 select-none overflow-y-auto transition-colors text-slate-800 dark:text-zinc-100">
       {/* Symbol Picker & Top Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80 mb-3 relative">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-zinc-800/80 mb-3 relative">
         <div className="relative">
           <button
             onClick={() => setSymbolPickerOpen(!isSymbolPickerOpen)}
-            className="flex items-center gap-2 py-1.5 px-3 rounded-xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-left min-h-[44px] cursor-pointer"
+            className="flex items-center gap-2 py-1.5 px-3 rounded-xl bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-800 text-left min-h-[44px] cursor-pointer"
           >
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-sm text-zinc-100 font-mono">
-                  {selectedSymbol}
-                </span>
-                <ChevronDown className="w-4 h-4 text-zinc-400" />
-              </div>
-              <span className="text-[10px] text-zinc-400">{symbolCfg?.name || 'Instrument'}</span>
+            <div className="flex flex-col">
+              <span className="font-bold text-sm text-slate-900 dark:text-zinc-100 font-mono tracking-tight flex items-center gap-1">
+                {selectedSymbol}
+                <ChevronDown className="w-4 h-4 text-slate-400 dark:text-zinc-400" />
+              </span>
+              <span className="text-[10px] text-slate-500 dark:text-zinc-400 leading-none font-sans font-medium">
+                {symbolCfg?.name || 'Instrument'}
+              </span>
             </div>
           </button>
 
+          {/* Symbol Switcher Dropdown */}
           {isSymbolPickerOpen && (
-            <div className="absolute top-14 left-0 w-60 max-h-72 overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl z-40 p-1 divide-y divide-zinc-800/50">
+            <div className="absolute top-14 left-0 w-64 max-h-72 overflow-y-auto bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl shadow-2xl z-40 p-1 divide-y divide-slate-100 dark:divide-zinc-800/40">
               {activeSymbolList.map((s) => (
                 <button
                   key={s.symbol}
@@ -198,38 +209,48 @@ export const MobileTradeView: React.FC = () => {
                     setSelectedSymbol(s.symbol);
                     setSymbolPickerOpen(false);
                   }}
-                  className={`w-full px-3 py-2.5 text-left flex items-center justify-between text-xs rounded-lg min-h-[44px] cursor-pointer ${
+                  className={`w-full px-3 py-2.5 text-left flex items-center justify-between text-xs rounded-lg transition-colors cursor-pointer min-h-[44px] ${
                     selectedSymbol === s.symbol
-                      ? 'bg-blue-600/30 text-blue-300 font-bold'
-                      : 'hover:bg-zinc-800 text-zinc-300'
+                      ? 'bg-blue-50 dark:bg-blue-600/30 text-blue-600 dark:text-blue-300 font-bold'
+                      : 'hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300'
                   }`}
                 >
-                  <span className="font-mono">{s.symbol}</span>
-                  <span className="text-[10px] text-zinc-400">{s.category}</span>
+                  <div className="flex flex-col">
+                    <span className="font-mono font-bold">{s.symbol}</span>
+                    <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-sans">{s.name}</span>
+                  </div>
+                  <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400">
+                    {s.category}
+                  </span>
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        <div className="flex flex-col items-end text-xs font-mono">
-          <span className="text-[10px] uppercase text-zinc-400">Free Margin</span>
-          <span className="font-bold text-zinc-200">
-            ${account.freeMargin.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-        </div>
+        {/* Live Mid & Spread */}
+        {quote && (
+          <div className="flex flex-col items-end font-mono">
+            <span className="font-bold text-sm text-slate-900 dark:text-zinc-100">
+              {quote.mid.toFixed(symbolCfg?.digits || 2)}
+            </span>
+            <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-sans">
+              Spread: {quote.spread}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Order Type Tabs (44px touch targets) */}
-      <div className="grid grid-cols-3 gap-1 bg-zinc-900 p-1 rounded-xl border border-zinc-800 mb-3 shrink-0">
+      {/* Order Type Tabs */}
+      <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-zinc-900 p-1 rounded-xl border border-slate-200 dark:border-zinc-800 mb-3">
         {(['MARKET', 'LIMIT', 'STOP'] as OrderType[]).map((t) => (
           <button
             key={t}
             onClick={() => setOrderType(t)}
-            className={`min-h-[40px] text-xs font-bold rounded-lg font-mono transition-colors cursor-pointer flex items-center justify-center ${
+            className={`min-h-[40px] py-1.5 text-xs font-bold rounded-lg font-mono transition-colors cursor-pointer flex items-center justify-center ${
               orderType === t
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
             }`}
           >
             {t}
@@ -237,106 +258,92 @@ export const MobileTradeView: React.FC = () => {
         ))}
       </div>
 
-      {/* Execution Feedback Banner */}
+      {/* Execution Notification Banner */}
       {lastNotification && (
         <div
           className={`mb-3 p-3 rounded-xl text-xs flex items-center gap-2 font-mono ${
             lastNotification.type === 'SUCCESS'
-              ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-800/60'
-              : 'bg-rose-950/90 text-rose-300 border border-rose-800/60'
+              ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60'
+              : 'bg-rose-50 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60'
           }`}
         >
           {lastNotification.type === 'SUCCESS' ? (
-            <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+            <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
           ) : (
-            <ShieldAlert className="w-5 h-5 shrink-0 text-rose-400" />
+            <ShieldAlert className="w-5 h-5 shrink-0 text-rose-600 dark:text-rose-400" />
           )}
-          <span className="text-xs leading-snug">{lastNotification.message}</span>
+          <span className="text-xs leading-tight font-sans">{lastNotification.message}</span>
         </div>
       )}
 
-      {/* Missing Market Quote Warning Banner */}
-      {!quote && (
-        <div className="mb-3 p-2.5 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-300 text-xs flex items-center gap-2 font-sans">
-          <ShieldAlert className="w-4 h-4 shrink-0 text-amber-400" />
-          <span className="text-xs leading-snug">No live market quote available for {selectedSymbol}. Market orders are disabled.</span>
-        </div>
-      )}
-
-      {/* Large Live Execution Quote Buttons (Min 56px height) */}
+      {/* Live Big Buy / Sell Quote Buttons */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         {/* SELL BUTTON */}
         <button
           onClick={() => handleExecute('SELL')}
-          disabled={orderType === 'MARKET' && !quote}
-          className="flex flex-col items-center justify-center min-h-[64px] p-3 rounded-2xl bg-rose-950/50 hover:bg-rose-900/60 active:bg-rose-800/80 border border-rose-800/70 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={(orderType === 'MARKET' && !quote) || isSubmitting}
+          className="min-h-[72px] flex flex-col items-center justify-center p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 active:scale-[0.98] border-2 border-rose-300 dark:border-rose-800/80 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
         >
-          <div className="flex items-center gap-1.5 text-rose-400 text-xs font-bold uppercase tracking-wider mb-0.5">
+          <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400 text-xs font-bold uppercase tracking-wider mb-1">
             <ArrowDown className="w-4 h-4" />
             <span>SELL {orderType !== 'MARKET' ? orderType : ''}</span>
           </div>
-          <span className="font-mono text-lg font-bold text-zinc-100">
+          <span className="font-mono text-lg font-bold text-rose-700 dark:text-zinc-100">
             {orderType === 'MARKET'
               ? (quote ? quote.bid.toFixed(symbolCfg?.digits || 2) : '—')
               : (requestedPrice || '—')}
-          </span>
-          <span className="text-[10px] text-zinc-400 font-sans">
-            {orderType === 'MARKET' ? 'Market Bid' : 'Trigger Bid'}
           </span>
         </button>
 
         {/* BUY BUTTON */}
         <button
           onClick={() => handleExecute('BUY')}
-          disabled={orderType === 'MARKET' && !quote}
-          className="flex flex-col items-center justify-center min-h-[64px] p-3 rounded-2xl bg-emerald-950/50 hover:bg-emerald-900/60 active:bg-emerald-800/80 border border-emerald-800/70 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={(orderType === 'MARKET' && !quote) || isSubmitting}
+          className="min-h-[72px] flex flex-col items-center justify-center p-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 active:scale-[0.98] border-2 border-emerald-300 dark:border-emerald-800/80 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
         >
-          <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-0.5">
+          <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-1">
             <ArrowUp className="w-4 h-4" />
             <span>BUY {orderType !== 'MARKET' ? orderType : ''}</span>
           </div>
-          <span className="font-mono text-lg font-bold text-zinc-100">
+          <span className="font-mono text-lg font-bold text-emerald-700 dark:text-zinc-100">
             {orderType === 'MARKET'
               ? (quote ? quote.ask.toFixed(symbolCfg?.digits || 2) : '—')
               : (requestedPrice || '—')}
           </span>
-          <span className="text-[10px] text-zinc-400 font-sans">
-            {orderType === 'MARKET' ? 'Market Ask' : 'Trigger Ask'}
-          </span>
         </button>
       </div>
 
-      {/* LIMIT / STOP Requested Price Input */}
+      {/* LIMIT / STOP Requested Price Field */}
       {orderType !== 'MARKET' && (
-        <div className="flex flex-col gap-2 mb-4 p-3 rounded-xl bg-zinc-900/70 border border-blue-900/40">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-zinc-200 font-bold flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-blue-400" />
-              <span>Target {orderType} Price</span>
+        <div className="flex flex-col gap-2 mb-4 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-blue-900/50">
+          <div className="flex items-center justify-between text-xs font-sans">
+            <span className="text-slate-700 dark:text-zinc-200 font-semibold flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>{orderType} Target Price</span>
             </span>
-            <span className="text-[11px] text-zinc-400 font-mono">
-              Live: {quote ? quote.mid.toFixed(symbolCfg?.digits || 2) : '—'}
+            <span className="text-[11px] text-slate-400 dark:text-zinc-400 font-mono">
+              Mid: {quote ? quote.mid.toFixed(symbolCfg?.digits || 2) : '—'}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => adjustPrice(-10)}
-              className="w-12 h-12 rounded-xl bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 border border-zinc-800 text-zinc-200 font-mono text-xs font-bold flex items-center justify-center cursor-pointer"
+              className="px-3 min-h-[44px] rounded-lg bg-white dark:bg-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-700 border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 font-mono text-xs font-bold flex items-center justify-center cursor-pointer"
             >
               -10
             </button>
             <input
               type="number"
               step="any"
-              placeholder="Price"
+              placeholder="Target Price"
               value={requestedPrice}
               onChange={(e) => setRequestedPrice(e.target.value)}
-              className="flex-1 min-h-[48px] bg-zinc-900 border border-zinc-800 focus:border-blue-500 text-center rounded-xl text-base font-mono text-zinc-100 font-bold outline-none"
+              className="flex-1 bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 focus:border-blue-500 text-center rounded-lg min-h-[44px] text-sm font-mono text-slate-900 dark:text-zinc-100 font-bold outline-none"
             />
             <button
               onClick={() => adjustPrice(10)}
-              className="w-12 h-12 rounded-xl bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 border border-zinc-800 text-zinc-200 font-mono text-xs font-bold flex items-center justify-center cursor-pointer"
+              className="px-3 min-h-[44px] rounded-lg bg-white dark:bg-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-700 border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 font-mono text-xs font-bold flex items-center justify-center cursor-pointer"
             >
               +10
             </button>
@@ -344,22 +351,22 @@ export const MobileTradeView: React.FC = () => {
         </div>
       )}
 
-      {/* Volume Stepper & Quick Presets */}
-      <div className="flex flex-col gap-2 mb-4 p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-zinc-300 font-medium">Trading Volume (Lots)</span>
-          <span className="text-[10px] text-zinc-400 font-mono">
-            Min: {symbolCfg?.minVolume} | Max: {symbolCfg?.maxVolume}
+      {/* Volume Stepper & Presets */}
+      <div className="flex flex-col gap-2 mb-4">
+        <div className="flex items-center justify-between text-xs font-sans">
+          <span className="text-slate-600 dark:text-zinc-400 font-medium">Trade Size (Lots)</span>
+          <span className="text-[11px] text-slate-400 dark:text-zinc-500 font-mono">
+            {symbolCfg?.minVolume} - {symbolCfg?.maxVolume} Lots
           </span>
         </div>
 
-        {/* Stepper with 48px touch targets */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => adjustVolume(-0.01)}
-            className="w-12 h-12 rounded-xl bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 border border-zinc-800 text-zinc-200 font-mono text-lg font-bold flex items-center justify-center cursor-pointer transition-colors"
+            className="w-11 h-11 rounded-xl bg-slate-100 dark:bg-zinc-900 hover:bg-slate-200 dark:hover:bg-zinc-800 border border-slate-300 dark:border-zinc-800 text-slate-700 dark:text-zinc-200 flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+            aria-label="Decrease volume"
           >
-            -
+            <Minus className="w-4 h-4" />
           </button>
           <input
             type="number"
@@ -368,26 +375,27 @@ export const MobileTradeView: React.FC = () => {
             max={symbolCfg?.maxVolume || 100}
             value={volume}
             onChange={(e) => setVolume(parseFloat(e.target.value) || 0.01)}
-            className="flex-1 min-h-[48px] bg-zinc-900 border border-zinc-800 focus:border-blue-500 text-center rounded-xl text-base font-mono text-zinc-100 font-bold outline-none"
+            className="flex-1 bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-800 focus:border-blue-500 text-center rounded-xl min-h-[44px] text-base font-mono text-slate-900 dark:text-zinc-100 font-bold outline-none"
           />
           <button
             onClick={() => adjustVolume(+0.01)}
-            className="w-12 h-12 rounded-xl bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 border border-zinc-800 text-zinc-200 font-mono text-lg font-bold flex items-center justify-center cursor-pointer transition-colors"
+            className="w-11 h-11 rounded-xl bg-slate-100 dark:bg-zinc-900 hover:bg-slate-200 dark:hover:bg-zinc-800 border border-slate-300 dark:border-zinc-800 text-slate-700 dark:text-zinc-200 flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+            aria-label="Increase volume"
           >
-            +
+            <Plus className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Quick Presets (40px touch target) */}
+        {/* Quick Presets */}
         <div className="grid grid-cols-5 gap-1.5 pt-1">
           {[0.01, 0.05, 0.10, 0.50, 1.00].map((val) => (
             <button
               key={val}
               onClick={() => setVolume(val)}
-              className={`min-h-[40px] py-1 rounded-lg text-xs font-mono border transition-colors cursor-pointer flex items-center justify-center ${
+              className={`min-h-[36px] rounded-lg text-xs font-mono border transition-colors cursor-pointer flex items-center justify-center ${
                 volume === val
-                  ? 'bg-blue-600 text-white font-bold border-blue-500 shadow-sm'
-                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-blue-600 text-white font-bold border-blue-600'
+                  : 'bg-slate-100 dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
               }`}
             >
               {val}
@@ -396,60 +404,60 @@ export const MobileTradeView: React.FC = () => {
         </div>
       </div>
 
-      {/* Margin Requirement Summary */}
-      <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 mb-4 flex items-center justify-between text-xs font-mono">
-        <span className="text-zinc-400">Required Margin:</span>
-        <span className={`text-sm font-bold ${hasEnoughMargin ? 'text-zinc-200' : 'text-rose-400'}`}>
-          ${requiredMargin.toFixed(2)}
+      {/* Margin Requirement Banner */}
+      <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800/80 mb-4 flex items-center justify-between text-xs font-mono">
+        <span className="text-slate-500 dark:text-zinc-400 font-sans font-medium">Required Margin:</span>
+        <span className={`font-bold ${hasEnoughMargin ? 'text-slate-900 dark:text-zinc-200' : 'text-rose-600 dark:text-rose-400'}`}>
+          ${requiredMargin.toFixed(2)} (Free: ${account.freeMargin.toFixed(2)})
         </span>
       </div>
 
-      {/* Stop Loss & Take Profit Toggles */}
-      <div className="flex flex-col gap-3 p-3 rounded-xl bg-zinc-900/40 border border-zinc-800/80">
-        <span className="text-xs font-semibold text-zinc-300">Risk Management (Optional)</span>
-
-        {/* Stop Loss */}
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
-            <input
-              type="checkbox"
-              checked={useSL}
-              onChange={(e) => setUseSL(e.target.checked)}
-              className="w-5 h-5 rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
-            />
-            <span className="text-xs text-zinc-300 font-medium">Stop Loss</span>
+      {/* Optional Stop Loss & Take Profit Toggles */}
+      <div className="flex flex-col gap-3 pt-3 border-t border-slate-200 dark:border-zinc-800/80">
+        {/* SL */}
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="mobileUseSL"
+            checked={useSL}
+            onChange={(e) => setUseSL(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-300 dark:border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+          />
+          <label htmlFor="mobileUseSL" className="text-xs text-slate-600 dark:text-zinc-400 cursor-pointer select-none font-sans font-medium min-w-[70px]">
+            Stop Loss
           </label>
           {useSL && (
             <input
               type="number"
               step="any"
-              placeholder={quote ? quote.bid.toString() : 'Price'}
+              placeholder={quote ? quote.bid.toString() : 'SL Price'}
               value={stopLoss}
               onChange={(e) => setStopLoss(e.target.value)}
-              className="flex-1 min-h-[44px] bg-zinc-900 border border-zinc-800 focus:border-rose-500 rounded-xl px-3 py-2 text-xs font-mono text-zinc-100 outline-none"
+              className="flex-1 bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-800 focus:border-rose-500 rounded-lg px-2.5 min-h-[38px] text-xs font-mono text-slate-900 dark:text-zinc-200 outline-none"
             />
           )}
         </div>
 
-        {/* Take Profit */}
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
-            <input
-              type="checkbox"
-              checked={useTP}
-              onChange={(e) => setUseTP(e.target.checked)}
-              className="w-5 h-5 rounded bg-zinc-900 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
-            />
-            <span className="text-xs text-zinc-300 font-medium">Take Profit</span>
+        {/* TP */}
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="mobileUseTP"
+            checked={useTP}
+            onChange={(e) => setUseTP(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-300 dark:border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+          />
+          <label htmlFor="mobileUseTP" className="text-xs text-slate-600 dark:text-zinc-400 cursor-pointer select-none font-sans font-medium min-w-[70px]">
+            Take Profit
           </label>
           {useTP && (
             <input
               type="number"
               step="any"
-              placeholder={quote ? quote.ask.toString() : 'Price'}
+              placeholder={quote ? quote.ask.toString() : 'TP Price'}
               value={takeProfit}
               onChange={(e) => setTakeProfit(e.target.value)}
-              className="flex-1 min-h-[44px] bg-zinc-900 border border-zinc-800 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs font-mono text-zinc-100 outline-none"
+              className="flex-1 bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-800 focus:border-emerald-500 rounded-lg px-2.5 min-h-[38px] text-xs font-mono text-slate-900 dark:text-zinc-200 outline-none"
             />
           )}
         </div>

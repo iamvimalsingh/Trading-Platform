@@ -2,12 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * APACHE ECHARTS RENDERER ADAPTER (POC)
+ * APACHE ECHARTS RENDERER ADAPTER (POC / UI POLISH 1.1)
  * Evaluates Apache ECharts (v5.x, Apache-2.0) as an alternative charting engine.
  * Decoupled behind IChartOverlayAdapter and IChartDataProvider boundaries.
- * 
- * NO TRADINGVIEW ATTRIBUTION:
- * This component is an isolated POC under Apache-2.0 license.
+ * Fully supports dynamic runtime Light and Dark application theme switching.
  */
 
 import * as echarts from 'echarts';
@@ -42,6 +40,7 @@ export class EChartsAdapter implements IChartOverlayAdapter {
   private interactionAdapter?: IChartInteractionAdapter;
   private currentBid?: number;
   private currentAsk?: number;
+  private currentTheme: 'light' | 'dark' = 'dark';
 
   // Performance telemetry
   private metrics: EChartsMetrics = {
@@ -59,6 +58,17 @@ export class EChartsAdapter implements IChartOverlayAdapter {
   }
 
   /**
+   * Applies light or dark theme dynamically to ECharts.
+   */
+  public applyTheme(theme: 'light' | 'dark'): void {
+    if (this.currentTheme === theme && this.chart) return;
+    this.currentTheme = theme;
+    if (this.chart) {
+      this.chart.setOption(this.buildChartOption(), true);
+    }
+  }
+
+  /**
    * Updates real-time Bid and Ask price levels.
    */
   public setBidAsk(bid?: number, ask?: number): void {
@@ -71,11 +81,12 @@ export class EChartsAdapter implements IChartOverlayAdapter {
   }
 
   /**
-   * Initializes the ECharts instance with dark trading theme and initial bars.
+   * Initializes the ECharts instance with specified theme and initial bars.
    */
-  public init(initialBars: CandleBar[]): void {
+  public init(initialBars: CandleBar[], theme: 'light' | 'dark' = 'dark'): void {
     if (!this.container) return;
 
+    this.currentTheme = theme;
     const startTime = performance.now();
 
     // Dispose any existing instance in container
@@ -84,7 +95,7 @@ export class EChartsAdapter implements IChartOverlayAdapter {
       existing.dispose();
     }
 
-    this.chart = echarts.init(this.container, 'dark', {
+    this.chart = echarts.init(this.container, undefined, {
       renderer: 'canvas',
     });
 
@@ -131,9 +142,10 @@ export class EChartsAdapter implements IChartOverlayAdapter {
   }
 
   /**
-   * Builds the complete ECharts configuration object.
+   * Builds the complete ECharts configuration object matching the active theme.
    */
   private buildChartOption(): echarts.EChartsOption {
+    const isLight = this.currentTheme === 'light';
     const times = this.rawBars.map((b) => this.formatTime(b.time));
     // ECharts Candlestick format: [open, close, lowest, highest]
     const values = this.rawBars.map((b) => [b.open, b.close, b.low, b.high]);
@@ -216,7 +228,7 @@ export class EChartsAdapter implements IChartOverlayAdapter {
     }
 
     return {
-      backgroundColor: '#09090b',
+      backgroundColor: isLight ? '#ffffff' : '#09090b',
       animation: false, // Disabled for low latency trading chart performance
       grid: {
         left: 12,
@@ -230,23 +242,23 @@ export class EChartsAdapter implements IChartOverlayAdapter {
         axisPointer: {
           type: 'cross',
           lineStyle: {
-            color: '#52525b',
+            color: isLight ? '#94a3b8' : '#52525b',
             width: 1,
             type: 'dashed',
           },
           label: {
-            backgroundColor: '#27272a',
-            color: '#f4f4f5',
+            backgroundColor: isLight ? '#f1f5f9' : '#27272a',
+            color: isLight ? '#0f172a' : '#f4f4f5',
             fontSize: 11,
             fontFamily: 'monospace',
             precision: 5,
           },
         },
-        backgroundColor: '#18181b',
-        borderColor: '#27272a',
+        backgroundColor: isLight ? '#ffffff' : '#18181b',
+        borderColor: isLight ? '#e2e8f0' : '#27272a',
         borderWidth: 1,
         textStyle: {
-          color: '#e4e4e7',
+          color: isLight ? '#0f172a' : '#e4e4e7',
           fontSize: 12,
           fontFamily: 'monospace',
         },
@@ -260,13 +272,15 @@ export class EChartsAdapter implements IChartOverlayAdapter {
           const isUp = bar.close >= bar.open;
           const colorClass = isUp ? '#10b981' : '#f43f5e';
           const timeFull = new Date(bar.time * 1000).toTimeString().split(' ')[0];
+          const labelColor = isLight ? '#64748b' : '#a1a1aa';
+          const valColor = isLight ? '#0f172a' : '#fafafa';
 
           return `
             <div style="font-family: monospace; font-size: 11px; line-height: 1.4;">
-              <div style="color: #a1a1aa; margin-bottom: 3px;">${timeFull}</div>
-              <div>O: <span style="color: #fafafa">${bar.open.toFixed(5)}</span></div>
-              <div>H: <span style="color: #fafafa">${bar.high.toFixed(5)}</span></div>
-              <div>L: <span style="color: #fafafa">${bar.low.toFixed(5)}</span></div>
+              <div style="color: ${labelColor}; margin-bottom: 3px;">${timeFull}</div>
+              <div>O: <span style="color: ${valColor}">${bar.open.toFixed(5)}</span></div>
+              <div>H: <span style="color: ${valColor}">${bar.high.toFixed(5)}</span></div>
+              <div>L: <span style="color: ${valColor}">${bar.low.toFixed(5)}</span></div>
               <div>C: <span style="color: ${colorClass}">${bar.close.toFixed(5)}</span></div>
             </div>
           `;
@@ -276,22 +290,22 @@ export class EChartsAdapter implements IChartOverlayAdapter {
         type: 'category',
         data: times,
         boundaryGap: true,
-        axisLine: { lineStyle: { color: '#27272a' } },
-        axisTick: { lineStyle: { color: '#27272a' } },
+        axisLine: { lineStyle: { color: isLight ? '#e2e8f0' : '#27272a' } },
+        axisTick: { lineStyle: { color: isLight ? '#e2e8f0' : '#27272a' } },
         axisLabel: {
-          color: '#71717a',
+          color: isLight ? '#64748b' : '#71717a',
           fontSize: 10,
           fontFamily: 'monospace',
         },
         splitLine: {
           show: true,
-          lineStyle: { color: '#18181b', type: 'solid' },
+          lineStyle: { color: isLight ? '#f1f5f9' : '#18181b', type: 'solid' },
         },
         axisPointer: {
           label: {
             show: true,
-            backgroundColor: '#27272a',
-            color: '#f4f4f5',
+            backgroundColor: isLight ? '#e2e8f0' : '#27272a',
+            color: isLight ? '#0f172a' : '#f4f4f5',
           },
         },
       },
@@ -299,23 +313,23 @@ export class EChartsAdapter implements IChartOverlayAdapter {
         type: 'value',
         position: 'right',
         scale: true,
-        axisLine: { show: true, lineStyle: { color: '#27272a' } },
-        axisTick: { show: true, lineStyle: { color: '#27272a' } },
+        axisLine: { show: true, lineStyle: { color: isLight ? '#e2e8f0' : '#27272a' } },
+        axisTick: { show: true, lineStyle: { color: isLight ? '#e2e8f0' : '#27272a' } },
         axisLabel: {
-          color: '#71717a',
+          color: isLight ? '#64748b' : '#71717a',
           fontSize: 10,
           fontFamily: 'monospace',
           formatter: (val: number) => val.toFixed(5),
         },
         splitLine: {
           show: true,
-          lineStyle: { color: '#18181b', type: 'solid' },
+          lineStyle: { color: isLight ? '#f1f5f9' : '#18181b', type: 'solid' },
         },
         axisPointer: {
           label: {
             show: true,
-            backgroundColor: '#27272a',
-            color: '#f4f4f5',
+            backgroundColor: isLight ? '#e2e8f0' : '#27272a',
+            color: isLight ? '#0f172a' : '#f4f4f5',
             formatter: (p: any) => Number(p.value).toFixed(5),
           },
         },

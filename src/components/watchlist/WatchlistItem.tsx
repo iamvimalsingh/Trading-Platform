@@ -32,14 +32,14 @@ export const WatchlistItem: React.FC<WatchlistItemProps> = React.memo(({ symbolC
       if (flashTimerRef.current) {
         window.clearTimeout(flashTimerRef.current);
       }
-      el.classList.remove('bg-emerald-950/80', 'text-emerald-300', 'bg-rose-950/80', 'text-rose-300');
+      el.classList.remove('bg-emerald-100', 'dark:bg-emerald-950/80', 'text-emerald-700', 'dark:text-emerald-300', 'bg-rose-100', 'dark:bg-rose-950/80', 'text-rose-700', 'dark:text-rose-300');
       if (isUp) {
-        el.classList.add('bg-emerald-950/80', 'text-emerald-300');
+        el.classList.add('bg-emerald-100', 'dark:bg-emerald-950/80', 'text-emerald-700', 'dark:text-emerald-300');
       } else {
-        el.classList.add('bg-rose-950/80', 'text-rose-300');
+        el.classList.add('bg-rose-100', 'dark:bg-rose-950/80', 'text-rose-700', 'dark:text-rose-300');
       }
       flashTimerRef.current = window.setTimeout(() => {
-        el.classList.remove('bg-emerald-950/80', 'text-emerald-300', 'bg-rose-950/80', 'text-rose-300');
+        el.classList.remove('bg-emerald-100', 'dark:bg-emerald-950/80', 'text-emerald-700', 'dark:text-emerald-300', 'bg-rose-100', 'dark:bg-rose-950/80', 'text-rose-700', 'dark:text-rose-300');
         flashTimerRef.current = null;
       }, 400);
     }
@@ -57,50 +57,54 @@ export const WatchlistItem: React.FC<WatchlistItemProps> = React.memo(({ symbolC
   return (
     <div
       onClick={() => setSelectedSymbol(symbol)}
-      className={`group flex items-center justify-between px-3 py-2 text-xs font-mono border-b border-zinc-900/60 cursor-pointer transition-colors ${
+      className={`group flex items-center justify-between px-3 py-2 text-xs font-mono border-b border-slate-100 dark:border-zinc-900/60 cursor-pointer transition-colors ${
         isSelected
-          ? 'bg-zinc-800/90 border-l-2 border-l-blue-500'
-          : 'hover:bg-zinc-900/70 border-l-2 border-l-transparent'
+          ? 'bg-blue-50/80 dark:bg-zinc-800/90 border-l-3 border-l-blue-600'
+          : 'hover:bg-slate-50 dark:hover:bg-zinc-900/70 border-l-3 border-l-transparent'
       }`}
     >
       {/* Symbol Name & Category Badge */}
       <div className="flex flex-col min-w-0 pr-1">
         <div className="flex items-center gap-1.5">
-          <span className="font-semibold text-zinc-100 group-hover:text-blue-400 transition-colors">
+          <span className={`font-bold transition-colors ${
+            isSelected
+              ? 'text-blue-600 dark:text-blue-400'
+              : 'text-slate-900 dark:text-zinc-100 group-hover:text-blue-600 dark:group-hover:text-blue-400'
+          }`}>
             {symbol}
           </span>
-          <span className="text-[9px] px-1 py-0.2 rounded bg-zinc-900 text-zinc-500 border border-zinc-800 uppercase font-sans">
+          <span className="text-[9px] px-1 py-0.2 rounded bg-slate-100 dark:bg-zinc-900 text-slate-500 dark:text-zinc-500 border border-slate-200 dark:border-zinc-800 uppercase font-sans font-medium">
             {symbolConfig.category}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 font-sans">
+        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-zinc-400 font-sans">
           {hasQuote ? (
             <>
               <span>Spr: {quote!.spread}</span>
-              <span className={isPositive ? 'text-emerald-500 font-mono' : 'text-rose-500 font-mono'}>
+              <span className={isPositive ? 'text-emerald-600 dark:text-emerald-400 font-mono font-medium' : 'text-rose-600 dark:text-rose-400 font-mono font-medium'}>
                 {isPositive ? '+' : ''}{quote!.change24hPct.toFixed(2)}%
               </span>
             </>
           ) : (
-            <span className="text-zinc-500 italic">Waiting for quote</span>
+            <span className="text-slate-400 dark:text-zinc-500 italic">Waiting for quote</span>
           )}
         </div>
       </div>
 
       {/* Bid / Ask Price Cell with Flash Transitions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 font-mono">
         <div
           ref={bidCellRef}
-          className="flex flex-col items-end px-2 py-1 rounded transition-colors duration-300 text-zinc-200 min-w-[54px]"
+          className="flex flex-col items-end px-2 py-1 rounded-md transition-colors duration-300 text-slate-800 dark:text-zinc-200 min-w-[54px]"
         >
-          <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-sans">Bid</span>
-          <span className="font-semibold tracking-tight">
+          <span className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-zinc-500 font-sans font-medium">Bid</span>
+          <span className="font-bold tracking-tight text-slate-900 dark:text-zinc-100">
             {hasQuote ? quote!.bid.toFixed(symbolConfig.digits) : '—'}
           </span>
         </div>
 
-        <div className="flex flex-col items-end px-2 py-1 rounded bg-zinc-900/40 text-zinc-300 min-w-[54px]">
-          <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-sans">Ask</span>
+        <div className="flex flex-col items-end px-2 py-1 rounded-md bg-slate-100 dark:bg-zinc-900/60 text-slate-700 dark:text-zinc-300 min-w-[54px]">
+          <span className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-zinc-500 font-sans font-medium">Ask</span>
           <span className="font-medium tracking-tight">
             {hasQuote ? quote!.ask.toFixed(symbolConfig.digits) : '—'}
           </span>
