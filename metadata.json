@@ -1,0 +1,7 @@
+{
+  "name": "Trading Terminal - Architecture & Platform",
+  "description": "High-performance, ultra-fast Trading Terminal platform foundation and architecture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
