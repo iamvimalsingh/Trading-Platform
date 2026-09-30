@@ -2,9 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * CHART COMPONENT (ABSTRACTION-POWERED)
+ * CHART COMPONENT (LIGHTWEIGHT CHARTS — CANDLESTICK ONLY)
  * Consumes IChartDataProvider and IChartOverlayAdapter via LightweightChartsAdapter.
- * Pure presentation component decoupled from raw WebSocket frames and direct library calls.
  */
 
 import React, { useEffect, useMemo, useRef } from 'react';
@@ -19,14 +18,12 @@ import {
 
 interface LightweightChartProps {
   timeframe: string;
-  chartType?: 'line' | 'candlestick';
   dataProvider?: IChartDataProvider;
   interactionAdapter?: IChartInteractionAdapter;
 }
 
 export const LightweightChart: React.FC<LightweightChartProps> = ({
   timeframe,
-  chartType = 'line',
   dataProvider = defaultChartDataProvider,
   interactionAdapter,
 }) => {
@@ -38,7 +35,6 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
   const positions = useTradingStore((state) => state.positions);
   const theme = useTradingStore((state) => state.theme);
 
-  // Derive active trading price levels for the selected instrument
   const activeLevels = useMemo(() => {
     const levels: ChartPriceLevel[] = [];
     const openPositions = positions.filter(
@@ -46,7 +42,6 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     );
 
     for (const pos of openPositions) {
-      // Entry Level
       levels.push({
         id: `entry_${pos.id}`,
         type: 'ENTRY',
@@ -55,7 +50,6 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         isDraggable: false,
       });
 
-      // Stop Loss Level (if defined)
       if (pos.stopLoss) {
         levels.push({
           id: `sl_${pos.id}`,
@@ -66,7 +60,6 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         });
       }
 
-      // Take Profit Level (if defined)
       if (pos.takeProfit) {
         levels.push({
           id: `tp_${pos.id}`,
@@ -81,21 +74,18 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     return levels;
   }, [positions, selectedSymbol]);
 
-  // Mount adapter and initialize chart data
   useEffect(() => {
     if (!containerRef.current) return;
 
     const adapter = new LightweightChartsAdapter(
       containerRef.current,
-      interactionAdapter,
-      chartType
+      interactionAdapter
     );
     adapterRef.current = adapter;
 
     let isCancelled = false;
     let unsubscribeBarStream: (() => void) | null = null;
 
-    // Load initial normalized historical bars via IChartDataProvider
     dataProvider
       .getHistoricalBars(selectedSymbol, timeframe, 120)
       .then((bars) => {
@@ -103,7 +93,6 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
         adapter.init(bars, theme);
         adapter.setPriceLevels([]);
 
-        // Subscribe to live bar streaming updates
         unsubscribeBarStream = dataProvider.subscribeBarUpdates(
           selectedSymbol,
           timeframe,
@@ -125,21 +114,18 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
     };
   }, [selectedSymbol, timeframe, dataProvider, interactionAdapter]);
 
-  // Synchronize theme changes without recreating chart canvas or reloading bars
   useEffect(() => {
     if (adapterRef.current) {
       adapterRef.current.applyTheme(theme);
     }
   }, [theme]);
 
-  // Clean chart rule: keep price levels empty by default
   useEffect(() => {
     if (adapterRef.current) {
       adapterRef.current.setPriceLevels([]);
     }
   }, [activeLevels]);
 
-  // Synchronize live Bid/Ask overlay lines when quote updates
   useEffect(() => {
     if (adapterRef.current && quote) {
       adapterRef.current.setBidAsk(quote.bid, quote.ask);

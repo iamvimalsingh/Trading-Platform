@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  * 
  * MOBILE CHART VIEW
- * Fullscreen mobile chart rendering using LightweightChartsAdapter.
- * Preserves entry/SL/TP lines, crosshair inspection, and timeframes.
+ * Fullscreen mobile chart rendering with Market Overview preview and See Price on Chart CTA.
  */
 
 import React, { lazy, Suspense, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, Zap } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, Zap, LineChart, Activity, X, ChevronRight } from 'lucide-react';
 import { useTradingStore } from '../../store/useTradingStore';
 
 const LightweightChartLazy = lazy(() => import('../chart/LightweightChart'));
@@ -22,7 +21,7 @@ export const MobileChartView: React.FC = () => {
   const setMobileTab = useTradingStore((state) => state.setMobileTab);
 
   const [timeframe, setTimeframe] = useState<string>('5m');
-  const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
+  const [isChartOpen, setIsChartOpen] = useState<boolean>(false);
   const [isSymbolPickerOpen, setSymbolPickerOpen] = useState<boolean>(false);
 
   const isPositive = quote ? quote.change24hPct >= 0 : true;
@@ -89,41 +88,116 @@ export const MobileChartView: React.FC = () => {
           </div>
         )}
 
-        {/* Timeframe Selectors (min 36px touch targets) */}
-        <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-slate-200 dark:border-zinc-800">
-          {(['1m', '5m', '15m', '1h'] as const).map((tf) => (
+        {/* Chart Toggle / Close / Timeframe Controls */}
+        <div className="flex items-center gap-2">
+          {isChartOpen ? (
+            <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-zinc-900/80 p-0.5 rounded-lg border border-slate-200 dark:border-zinc-800">
+                {(['1m', '5m', '15m', '1h'] as const).map((tf) => (
+                  <button
+                    key={tf}
+                    onClick={() => setTimeframe(tf)}
+                    className={`px-1.5 py-1 text-[11px] font-mono rounded min-h-[32px] min-w-[32px] flex items-center justify-center cursor-pointer transition-colors ${
+                      timeframe === tf
+                        ? 'bg-blue-600 text-white font-bold'
+                        : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    {tf}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setIsChartOpen(false)}
+                className="p-1.5 rounded-lg bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 cursor-pointer"
+                title="Close Chart"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
             <button
-              key={tf}
-              onClick={() => setTimeframe(tf)}
-              className={`px-2 py-1 text-xs font-mono rounded min-h-[34px] min-w-[34px] flex items-center justify-center cursor-pointer transition-colors ${
-                timeframe === tf
-                  ? 'bg-blue-600 text-white font-bold'
-                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
-              }`}
+              onClick={() => setIsChartOpen(true)}
+              className="px-2.5 py-1.5 text-xs font-mono font-bold rounded-lg bg-blue-600 text-white flex items-center gap-1 shadow-sm cursor-pointer"
             >
-              {tf}
+              <LineChart className="w-3.5 h-3.5" />
+              <span>Chart</span>
             </button>
-          ))}
+          )}
         </div>
       </div>
 
-      {/* Main Chart Canvas Area */}
-      <div className="flex-1 w-full relative overflow-hidden bg-white dark:bg-zinc-950">
-        <Suspense
-          fallback={
-            <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-slate-50 dark:bg-zinc-950 text-slate-400 dark:text-zinc-500 font-mono text-xs">
-              <div className="w-6 h-6 rounded-full border-2 border-slate-300 dark:border-zinc-800 border-t-blue-500 animate-spin" />
-              <span>Loading Chart Engine...</span>
+      {/* Main Chart Canvas Area or Market Overview Preview */}
+      <div className="flex-1 w-full relative overflow-hidden bg-white dark:bg-zinc-950 flex flex-col">
+        {isChartOpen ? (
+          <Suspense
+            fallback={
+              <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-slate-50 dark:bg-zinc-950 text-slate-400 dark:text-zinc-500 font-mono text-xs">
+                <div className="w-6 h-6 rounded-full border-2 border-slate-300 dark:border-zinc-800 border-t-blue-500 animate-spin" />
+                <span>Loading Lightweight Candlestick Chart...</span>
+              </div>
+            }
+          >
+            <LightweightChartLazy timeframe={timeframe} />
+          </Suspense>
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center select-none bg-gradient-to-b from-slate-50/50 to-white dark:from-zinc-950 dark:to-zinc-900/40">
+            <div className="relative z-10 w-full max-w-sm flex flex-col items-center gap-4 p-6 rounded-2xl bg-white/90 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800 shadow-xl backdrop-blur-md">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/60 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                <Activity className="w-5 h-5 animate-pulse" />
+              </div>
+
+              <div className="flex flex-col items-center gap-1">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-zinc-100 font-mono tracking-tight">
+                  {selectedSymbol} Market Overview
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-zinc-400 font-sans max-w-xs">
+                  Live market quotes connected. Tap below to load the interactive Lightweight Candlestick Chart.
+                </p>
+              </div>
+
+              {quote ? (
+                <div className="grid grid-cols-3 gap-2 w-full bg-slate-50 dark:bg-zinc-950/60 p-2.5 rounded-xl border border-slate-200 dark:border-zinc-800/60 font-mono text-[11px]">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-slate-400">Bid</span>
+                    <span className="font-bold text-slate-800 dark:text-zinc-200">
+                      {quote.bid.toFixed(symbolCfg?.digits || 2)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col border-x border-slate-200 dark:border-zinc-800 px-1">
+                    <span className="text-[9px] text-slate-400">Ask</span>
+                    <span className="font-bold text-slate-800 dark:text-zinc-200">
+                      {quote.ask.toFixed(symbolCfg?.digits || 2)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-slate-400">Change</span>
+                    <span className={`font-bold ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      {isPositive ? '+' : ''}{quote.change24hPct.toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 font-mono text-xs text-amber-500">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  <span>Connecting to quote feed...</span>
+                </div>
+              )}
+
+              <button
+                onClick={() => setIsChartOpen(true)}
+                className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-mono text-xs font-bold shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
+              >
+                <span>See Price on Chart</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
-          }
-        >
-          <LightweightChartLazy timeframe={timeframe} chartType={chartType} />
-        </Suspense>
+          </div>
+        )}
       </div>
 
       {/* Quick Trade Floating Bottom Action Bar */}
       <div className="p-2.5 bg-slate-50/95 dark:bg-zinc-950/95 border-t border-slate-200 dark:border-zinc-800/80 flex items-center gap-2 shrink-0">
-        {/* SELL Button (Min 48px touch target) */}
         <button
           onClick={() => setMobileTab('trade')}
           disabled={!quote}
@@ -138,7 +212,6 @@ export const MobileChartView: React.FC = () => {
           </span>
         </button>
 
-        {/* Quick Trade Open Button */}
         <button
           onClick={() => setMobileTab('trade')}
           className="min-h-[48px] min-w-[48px] px-3 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 active:bg-slate-200 dark:active:bg-zinc-700 flex flex-col items-center justify-center text-slate-700 dark:text-zinc-300 cursor-pointer"
@@ -148,7 +221,6 @@ export const MobileChartView: React.FC = () => {
           <span className="text-[9px] uppercase font-mono tracking-tight text-slate-500 dark:text-zinc-400 font-medium">Order</span>
         </button>
 
-        {/* BUY Button (Min 48px touch target) */}
         <button
           onClick={() => setMobileTab('trade')}
           disabled={!quote}
@@ -166,3 +238,5 @@ export const MobileChartView: React.FC = () => {
     </div>
   );
 };
+
+export default MobileChartView;
