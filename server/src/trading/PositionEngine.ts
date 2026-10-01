@@ -16,6 +16,9 @@ export interface PositionCloseOutcome {
   releasedMargin: number;
   closeReason: 'MANUAL' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'STOP_OUT';
   execution: Execution;
+  isPartialClose: boolean;
+  closedVolume: number;
+  remainingVolume: number;
 }
 
 export class PositionEngine {
@@ -87,23 +90,45 @@ export class PositionEngine {
     positionId: string,
     quote: Quote,
     symbolCfg: SymbolConfig,
-    reason: PositionCloseOutcome['closeReason'] = 'MANUAL'
+    reason: PositionCloseOutcome['closeReason'] = 'MANUAL',
+    volumeToClose?: number
   ): { success: boolean; outcome?: PositionCloseOutcome; error?: string } {
     const pos = this.positions.get(positionId);
     if (!pos || pos.status !== 'OPEN') {
       return { success: false, error: 'Position not found or not open' };
     }
 
+    if (volumeToClose !== undefined) {
+      if (typeof volumeToClose !== 'number' || isNaN(volumeToClose) || volumeToClose <= 0) {
+        return { success: false, error: 'Invalid volume to close' };
+      }
+      if (volumeToClose > pos.volume) {
+        return { success: false, error: 'Close volume exceeds position volume' };
+      }
+    }
+
     const now = Date.now();
     const closeSide = pos.side === 'BUY' ? 'SELL' : 'BUY';
     const closePrice = ExecutionResolver.resolvePrice(closeSide, quote);
+
+    const isPartialClose = volumeToClose !== undefined && volumeToClose < pos.volume;
+    const closedVolume = isPartialClose ? Number(volumeToClose!.toFixed(4)) : pos.volume;
+    const remainingVolume = isPartialClose ? Number((pos.volume - closedVolume).toFixed(4)) : 0;
+
     const finalPnL = RiskEngine.calculatePositionPnL(
-      { side: pos.side, volume: pos.volume, openPrice: pos.openPrice },
+      { side: pos.side, volume: closedVolume, openPrice: pos.openPrice },
       quote,
       symbolCfg.contractSize
     );
 
-    const releasedMargin = pos.marginLocked;
+    const releasedMargin = isPartialClose
+      ? Number(((pos.marginLocked * closedVolume) / pos.volume).toFixed(2))
+      : pos.marginLocked;
+    const remainingMargin = isPartialClose
+      ? Number((pos.marginLocked - releasedMargin).toFixed(2))
+      : 0;
+
+    const accumulatedRealized = Number(((pos.realizedPnL || 0) + finalPnL).toFixed(2));
 
     // Create Authoritative Closing Execution Record
     const execution: Execution = {
@@ -113,7 +138,7 @@ export class PositionEngine {
       symbol: pos.symbol,
       side: closeSide,
       type: 'CLOSE',
-      volume: pos.volume,
+      volume: closedVolume,
       executionPrice: closePrice,
       commission: 0,
       fee: 0,
@@ -121,26 +146,43 @@ export class PositionEngine {
       timestamp: now,
     };
 
-    const closedPosition: Position = {
-      ...pos,
-      currentPrice: closePrice,
-      realizedPnL: finalPnL,
-      unrealizedPnL: 0,
-      marginLocked: 0,
-      closedAt: now,
-      status: 'CLOSED',
-    };
+    let updatedPosition: Position;
+    if (isPartialClose) {
+      // Position remains OPEN with reduced volume and margin
+      updatedPosition = {
+        ...pos,
+        volume: remainingVolume,
+        currentPrice: closePrice,
+        marginLocked: remainingMargin,
+        realizedPnL: accumulatedRealized,
+        status: 'OPEN',
+      };
+    } else {
+      // Position is fully CLOSED
+      updatedPosition = {
+        ...pos,
+        currentPrice: closePrice,
+        realizedPnL: accumulatedRealized,
+        unrealizedPnL: 0,
+        marginLocked: 0,
+        closedAt: now,
+        status: 'CLOSED',
+      };
+    }
 
-    this.positions.set(positionId, closedPosition);
+    this.positions.set(positionId, updatedPosition);
 
     return {
       success: true,
       outcome: {
-        closedPosition,
+        closedPosition: updatedPosition,
         realizedPnL: finalPnL,
         releasedMargin,
         closeReason: reason,
         execution,
+        isPartialClose,
+        closedVolume,
+        remainingVolume,
       },
     };
   }

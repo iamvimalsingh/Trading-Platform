@@ -220,7 +220,7 @@ export class TradingWebSocketServer {
           return;
         }
 
-        this.runtime.placeOrder(connectionId, payload, envelope.requestId);
+        await this.runtime.placeOrder(connectionId, payload, envelope.requestId);
         break;
       }
 
@@ -239,7 +239,7 @@ export class TradingWebSocketServer {
           return;
         }
 
-        this.runtime.cancelOrder(connectionId, payload.orderId, envelope.requestId);
+        await this.runtime.cancelOrder(connectionId, payload.orderId, envelope.requestId);
         break;
       }
 
@@ -258,7 +258,7 @@ export class TradingWebSocketServer {
           return;
         }
 
-        this.runtime.replaceOrder(connectionId, payload, envelope.requestId);
+        await this.runtime.replaceOrder(connectionId, payload, envelope.requestId);
         break;
       }
 
@@ -276,7 +276,7 @@ export class TradingWebSocketServer {
           this.runtime.sendToClient(session, 'ERROR', { code: 'INVALID_PAYLOAD', message: 'positionId is required' }, envelope.requestId);
           return;
         }
-        this.runtime.modifyPosition(connectionId, payload.positionId, payload.stopLoss, payload.takeProfit, envelope.requestId);
+        await this.runtime.modifyPosition(connectionId, payload.positionId, payload.stopLoss, payload.takeProfit, envelope.requestId);
         break;
       }
 
@@ -294,7 +294,7 @@ export class TradingWebSocketServer {
           this.runtime.sendToClient(session, 'ERROR', { code: 'INVALID_PAYLOAD', message: 'positionId is required' }, envelope.requestId);
           return;
         }
-        this.runtime.closePosition(connectionId, payload.positionId, envelope.requestId);
+        await this.runtime.closePosition(connectionId, payload.positionId, payload.volume, envelope.requestId);
         break;
       }
 

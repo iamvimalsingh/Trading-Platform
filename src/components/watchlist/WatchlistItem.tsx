@@ -76,6 +76,16 @@ export const WatchlistItem: React.FC<WatchlistItemProps> = React.memo(({ symbolC
           <span className="text-[9px] px-1 py-0.2 rounded bg-slate-100 dark:bg-zinc-900 text-slate-500 dark:text-zinc-500 border border-slate-200 dark:border-zinc-800 uppercase font-sans font-medium">
             {symbolConfig.category}
           </span>
+          {quote?.marketStatus === 'STALE' && (
+            <span className="text-[8px] px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 font-mono font-bold tracking-wider uppercase">
+              STALE
+            </span>
+          )}
+          {(quote?.marketStatus === 'SIMULATED' || quote?.source === 'simulated') && (
+            <span className="text-[8px] px-1 py-0.2 rounded bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-400 border border-purple-300 dark:border-purple-800 font-mono font-bold tracking-wider uppercase">
+              SIM
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-zinc-400 font-sans">
           {hasQuote ? (
@@ -86,7 +96,7 @@ export const WatchlistItem: React.FC<WatchlistItemProps> = React.memo(({ symbolC
               </span>
             </>
           ) : (
-            <span className="text-slate-400 dark:text-zinc-500 italic">Waiting for quote</span>
+            <span className="text-slate-400 dark:text-zinc-500 italic">Waiting for market data</span>
           )}
         </div>
       </div>

@@ -97,6 +97,7 @@ export interface ModifyPositionPayload {
 
 export interface ClosePositionPayload {
   positionId: string;
+  volume?: number;
 }
 
 // Server Payloads

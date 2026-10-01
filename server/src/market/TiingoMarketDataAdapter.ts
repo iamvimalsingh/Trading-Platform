@@ -10,6 +10,8 @@
 import { WebSocket } from 'ws';
 import { OHLCVBar, Quote, SymbolConfig } from '../types/trading';
 import { IMarketDataProvider, MarketMetrics, ProviderConnectionState, QuoteBatchListener } from './IMarketDataProvider';
+import { IMarketDataAdapter, QuoteListener } from './IMarketDataAdapter';
+import { NormalizedInternalQuote, ProviderStatusInfo } from '../types/marketData';
 import { ALL_SYMBOLS, INITIAL_SYMBOLS } from './MarketEngine';
 
 export interface TiingoAdapterOptions {
@@ -188,12 +190,19 @@ export function normalizeTiingoQuote(
     change24hPct,
     timestamp,
     tickDirection,
+    marketStatus: 'LIVE',
+    source: 'tiingo_fx',
+    digits,
+    tickSize: symbolCfg.tickSize || Math.pow(10, -digits),
+    providerTimestamp: parsedTime,
+    receivedTimestamp: Date.now(),
   };
 
   return { quote, updatedStats };
 }
 
-export class TiingoMarketDataAdapter implements IMarketDataProvider {
+export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketDataAdapter {
+  public readonly providerId: string = 'tiingo_fx';
   public readonly providerName: string = 'TiingoLiveFeed';
 
   private readonly apiToken: string;
@@ -337,7 +346,11 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider {
     this.connectionStatus = 'DISCONNECTED';
   }
 
-  private connect(): void {
+  public disconnect(): void {
+    this.stop();
+  }
+
+  public connect(): void {
     if (!this.isRunning) return;
 
     if (!this.apiToken) {
@@ -509,11 +522,79 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider {
     }
   }
 
-  // --- IMarketDataProvider implementation ---
+  // --- IMarketDataProvider & IMarketDataAdapter implementation ---
 
-  public subscribe(listener: QuoteBatchListener): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+  public subscribe(listener: QuoteBatchListener): () => void;
+  public subscribe(symbols: string[]): void;
+  public subscribe(symbolsOrListener: string[] | QuoteBatchListener): any {
+    if (typeof symbolsOrListener === 'function') {
+      this.listeners.add(symbolsOrListener);
+      return () => this.listeners.delete(symbolsOrListener);
+    }
+    if (Array.isArray(symbolsOrListener)) {
+      for (const s of symbolsOrListener) {
+        const lower = s.toLowerCase();
+        if (!this.tickers.includes(lower)) {
+          this.tickers.push(lower);
+        }
+      }
+      this.sendSubscription();
+    }
+  }
+
+  public unsubscribe(symbols: string[]): void {
+    for (const s of symbols) {
+      const idx = this.tickers.indexOf(s.toLowerCase());
+      if (idx !== -1) {
+        this.tickers.splice(idx, 1);
+      }
+    }
+  }
+
+  public normalizeQuote(rawPayload: unknown): NormalizedInternalQuote {
+    let tuples = parseTiingoMessage(rawPayload);
+    let tuple: RawTiingoQuoteTuple;
+    if (tuples.length > 0) {
+      tuple = tuples[0];
+    } else if (rawPayload && typeof rawPayload === 'object' && 'ticker' in (rawPayload as any)) {
+      tuple = rawPayload as RawTiingoQuoteTuple;
+    } else {
+      tuple = {
+        updateType: 'Q',
+        ticker: 'EURUSD',
+        timestamp: new Date().toISOString(),
+        bidSize: 1000000,
+        bidPrice: 1.08500,
+        askSize: 1000000,
+        askPrice: 1.08512,
+      };
+    }
+
+    const symCfg = this.symbolsMap.get(tuple.ticker) || INITIAL_SYMBOLS[0];
+    const prevQuote = this.quotes.get(tuple.ticker);
+    const prevStats = this.sessionStats.get(tuple.ticker);
+    const { quote } = normalizeTiingoQuote(tuple, symCfg, prevQuote, prevStats);
+
+    return {
+      symbol: quote.symbol,
+      bid: quote.bid,
+      ask: quote.ask,
+      mid: quote.mid,
+      spread: quote.spread,
+      timestamp: quote.timestamp,
+      providerTimestamp: quote.providerTimestamp,
+      receivedTimestamp: quote.receivedTimestamp || Date.now(),
+      marketStatus: (quote.marketStatus as any) || 'LIVE',
+      providerId: this.providerId,
+      assetClass: symCfg.category || 'FOREX',
+      digits: symCfg.digits,
+      tickSize: symCfg.tickSize || Math.pow(10, -symCfg.digits),
+      tickDirection: quote.tickDirection,
+      high24h: quote.high24h,
+      low24h: quote.low24h,
+      change24h: quote.change24h,
+      change24hPct: quote.change24hPct,
+    };
   }
 
   public getQuote(symbol: string): Quote | undefined {
@@ -617,5 +698,53 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider {
       batch[sym] = quote;
     }
     return batch;
+  }
+
+  // --- IMarketDataAdapter implementation ---
+
+  public getStatus(): ProviderStatusInfo {
+    return {
+      providerId: this.providerId,
+      providerName: this.providerName,
+      status: this.connectionStatus,
+      supportedSymbols: this.tickers.map((t) => t.toUpperCase()),
+      lastMessageTimestamp: this.lastTickTimestamp,
+      reconnectAttempts: this.reconnectAttempts,
+      isHealthy: this.isHealthy(),
+    };
+  }
+
+  public isHealthy(): boolean {
+    return this.connectionStatus === 'CONNECTED' && !this.isStale;
+  }
+
+  public onQuote(listener: QuoteListener): () => void {
+    const wrapper: QuoteBatchListener = (batch) => {
+      for (const q of Object.values(batch)) {
+        const symDef = this.symbolsMap.get(q.symbol);
+        const normalized: NormalizedInternalQuote = {
+          symbol: q.symbol,
+          bid: q.bid,
+          ask: q.ask,
+          mid: q.mid,
+          spread: q.spread,
+          timestamp: q.timestamp,
+          providerTimestamp: q.providerTimestamp,
+          receivedTimestamp: q.receivedTimestamp || Date.now(),
+          marketStatus: (q.marketStatus as any) || 'LIVE',
+          providerId: this.providerId,
+          assetClass: symDef?.category || 'FOREX',
+          digits: symDef?.digits || 5,
+          tickSize: symDef?.tickSize || 0.00001,
+          tickDirection: q.tickDirection,
+          high24h: q.high24h,
+          low24h: q.low24h,
+          change24h: q.change24h,
+          change24hPct: q.change24hPct,
+        };
+        listener(normalized);
+      }
+    };
+    return this.subscribe(wrapper);
   }
 }

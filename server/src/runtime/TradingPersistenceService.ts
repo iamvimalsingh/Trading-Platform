@@ -85,20 +85,33 @@ export class TradingPersistenceService {
   }
 
   /**
-   * Atomically records an order execution (Order fill + Position opening + Execution audit).
+   * Atomically records an order execution (Order fill + Position opening + Execution audit + Account financial state).
    */
   public async recordOrderExecution(
     order: Order,
     position?: Position,
     execution?: Execution,
+    account?: TradingAccount,
     tenantId: string = 'tenant_default'
-  ): Promise<void> {
+  ): Promise<{ applied: boolean; duplicate: boolean }> {
     await this.init();
 
-    await this.db.transaction(async (txClient) => {
+    return await this.db.transaction(async (txClient) => {
       const txOrders = new PostgresOrderRepository(txClient);
       const txPositions = new PostgresPositionRepository(txClient);
       const txExecutions = new PostgresExecutionRepository(txClient);
+      const txAccounts = new PostgresAccountRepository(txClient);
+
+      if (execution) {
+        const existingExec = await txExecutions.getExecution(execution.id);
+        if (existingExec) {
+          return { applied: false, duplicate: true };
+        }
+        const saveRes = await txExecutions.saveExecution(execution, tenantId);
+        if (!saveRes.inserted) {
+          return { applied: false, duplicate: true };
+        }
+      }
 
       await txOrders.saveOrder(order, tenantId);
 
@@ -106,15 +119,17 @@ export class TradingPersistenceService {
         await txPositions.savePosition(position, tenantId);
       }
 
-      if (execution) {
-        await txExecutions.saveExecution(execution, tenantId);
+      if (account) {
+        await txAccounts.updateAccount(account);
       }
+
+      return { applied: true, duplicate: false };
     });
   }
 
   /**
-   * Atomically records a position close:
-   * Position updated to CLOSED + Close Execution + Realized P/L Ledger Entry + Account Balance update.
+   * Atomically records a position close (partial or full):
+   * Position updated + Close Execution + Realized P/L Ledger Entry + Account Balance update.
    */
   public async recordPositionClose(
     position: Position,
@@ -122,20 +137,27 @@ export class TradingPersistenceService {
     ledgerEntry?: LedgerEntry,
     account?: TradingAccount,
     tenantId: string = 'tenant_default'
-  ): Promise<void> {
+  ): Promise<{ applied: boolean; duplicate: boolean }> {
     await this.init();
 
-    await this.db.transaction(async (txClient) => {
+    return await this.db.transaction(async (txClient) => {
       const txPositions = new PostgresPositionRepository(txClient);
       const txExecutions = new PostgresExecutionRepository(txClient);
       const txLedger = new PostgresLedgerRepository(txClient);
       const txAccounts = new PostgresAccountRepository(txClient);
 
-      await txPositions.savePosition(position, tenantId);
-
       if (execution) {
-        await txExecutions.saveExecution(execution, tenantId);
+        const existingExec = await txExecutions.getExecution(execution.id);
+        if (existingExec) {
+          return { applied: false, duplicate: true };
+        }
+        const saveRes = await txExecutions.saveExecution(execution, tenantId);
+        if (!saveRes.inserted) {
+          return { applied: false, duplicate: true };
+        }
       }
+
+      await txPositions.savePosition(position, tenantId);
 
       if (ledgerEntry) {
         await txLedger.createEntry(ledgerEntry, tenantId);
@@ -144,6 +166,45 @@ export class TradingPersistenceService {
       if (account) {
         await txAccounts.updateAccount(account);
       }
+
+      return { applied: true, duplicate: false };
+    });
+  }
+
+  /**
+   * Direct execution submission with strict persistent idempotency protection.
+   */
+  public async applyExecution(
+    execution: Execution,
+    order?: Order,
+    position?: Position,
+    ledgerEntry?: LedgerEntry,
+    account?: TradingAccount,
+    tenantId: string = 'tenant_default'
+  ): Promise<{ applied: boolean; duplicate: boolean }> {
+    await this.init();
+    const existing = await this.executions.getExecution(execution.id);
+    if (existing) {
+      return { applied: false, duplicate: true };
+    }
+
+    return await this.db.transaction(async (txClient) => {
+      const txExecutions = new PostgresExecutionRepository(txClient);
+      const txOrders = new PostgresOrderRepository(txClient);
+      const txPositions = new PostgresPositionRepository(txClient);
+      const txLedger = new PostgresLedgerRepository(txClient);
+      const txAccounts = new PostgresAccountRepository(txClient);
+
+      const saveRes = await txExecutions.saveExecution(execution, tenantId);
+      if (!saveRes.inserted) {
+        return { applied: false, duplicate: true };
+      }
+      if (order) await txOrders.saveOrder(order, tenantId);
+      if (position) await txPositions.savePosition(position, tenantId);
+      if (ledgerEntry) await txLedger.createEntry(ledgerEntry, tenantId);
+      if (account) await txAccounts.updateAccount(account);
+
+      return { applied: true, duplicate: false };
     });
   }
 

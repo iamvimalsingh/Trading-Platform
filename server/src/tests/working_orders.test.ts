@@ -52,6 +52,8 @@ async function runWorkingOrdersTests() {
     });
   });
 
+  await runtime.persistence.init();
+
   const wsUrl = `ws://127.0.0.1:${serverPort}/ws`;
   const clientWs = new WebSocket(wsUrl);
   const messagesReceived: WsEnvelope[] = [];
@@ -94,8 +96,12 @@ async function runWorkingOrdersTests() {
     },
   }));
 
-  await new Promise((r) => setTimeout(r, 100));
-  const ackLimit1 = messagesReceived.find((m) => m.type === 'ORDER_ACK' && m.requestId === 'req_limit_1');
+  let ackLimit1: any;
+  for (let i = 0; i < 30; i++) {
+    ackLimit1 = messagesReceived.find((m) => m.type === 'ORDER_ACK' && m.requestId === 'req_limit_1');
+    if (ackLimit1) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
   const order1 = (ackLimit1?.payload as any)?.order;
 
   assert(
@@ -446,6 +452,7 @@ async function runWorkingOrdersTests() {
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runWorkingOrdersTests().catch((err) => {

@@ -115,7 +115,63 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
 
     `CREATE INDEX IF NOT EXISTS idx_ledger_account ON trading_ledger(account_id, created_at DESC);`,
 
-    // 6. Seed default demo accounts for foreign key consistency
+    // --- STEP 5: RISK + ADMIN CONTROL FOUNDATION MIGRATIONS ---
+
+    // 6. Account Controls Columns
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS trading_enabled BOOLEAN NOT NULL DEFAULT true;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS max_order_volume NUMERIC(12, 4);`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS max_position_volume NUMERIC(12, 4);`,
+
+    // 7. Trading Spread Configurations Table (Pair-Wise Spread Policy)
+    `CREATE TABLE IF NOT EXISTS trading_spread_configs (
+      id VARCHAR(64) PRIMARY KEY,
+      tenant_id VARCHAR(64) NOT NULL DEFAULT 'tenant_default',
+      symbol VARCHAR(32) NOT NULL,
+      spread_points NUMERIC(10, 4) NOT NULL,
+      spread_unit VARCHAR(16) NOT NULL DEFAULT 'POINTS',
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      effective_from BIGINT NOT NULL,
+      created_by VARCHAR(64) NOT NULL DEFAULT 'system',
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_spread_configs_lookup ON trading_spread_configs(tenant_id, symbol, is_active, effective_from);`,
+
+    // 8. Trading Audit Log Table (Immutable Administrative Operations Trail)
+    `CREATE TABLE IF NOT EXISTS trading_audit_log (
+      id VARCHAR(64) PRIMARY KEY,
+      tenant_id VARCHAR(64) NOT NULL,
+      admin_id VARCHAR(64) NOT NULL,
+      action VARCHAR(64) NOT NULL,
+      resource_type VARCHAR(64) NOT NULL,
+      resource_id VARCHAR(64) NOT NULL,
+      prev_state JSONB,
+      new_state JSONB,
+      reason TEXT,
+      timestamp BIGINT NOT NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON trading_audit_log(tenant_id, timestamp DESC);`,
+
+    // 9. Trading Symbol Configurations Overrides Table (Tenant / Admin Symbol Overrides)
+    `CREATE TABLE IF NOT EXISTS trading_symbol_configs (
+      id VARCHAR(64) PRIMARY KEY,
+      tenant_id VARCHAR(64) NOT NULL DEFAULT 'tenant_default',
+      symbol VARCHAR(32) NOT NULL,
+      is_enabled BOOLEAN NOT NULL DEFAULT true,
+      trading_status VARCHAR(32) NOT NULL DEFAULT 'TRADING',
+      min_volume NUMERIC(12, 4),
+      max_volume NUMERIC(12, 4),
+      volume_step NUMERIC(12, 4),
+      digits INTEGER,
+      tick_size NUMERIC(16, 6),
+      contract_size NUMERIC(16, 2),
+      updated_by VARCHAR(64),
+      updated_at BIGINT NOT NULL,
+      UNIQUE(tenant_id, symbol)
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_symbol_configs_tenant ON trading_symbol_configs(tenant_id, symbol);`,
+
+    // 10. Seed default demo accounts for foreign key consistency
     `INSERT INTO trading_accounts (id, tenant_id, client_id, account_number, platform, currency, account_type, session_mode, leverage, balance, equity, used_margin, free_margin, margin_level, margin_call_level, stop_out_level, status, created_at, updated_at)
      VALUES ('acc_demo_1001', 'tenant_default', 'client_demo_1001', 'DEMO-1001', 'PROPRIETARY', 'USD', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', 1700000000000, 1700000000000)
      ON CONFLICT (id) DO NOTHING;`,

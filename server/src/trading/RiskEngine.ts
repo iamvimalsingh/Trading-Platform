@@ -182,14 +182,50 @@ export class RiskEngine {
     account: TradingAccount,
     requiredMargin: number,
     symbolCfg: SymbolConfig | undefined,
-    volume: number
+    volume: number,
+    existingPositionVolume: number = 0
   ): { valid: boolean; reason?: string } {
     if (account.status !== 'ACTIVE') {
       return { valid: false, reason: `Account is currently ${account.status}` };
     }
 
+    if (account.tradingEnabled === false) {
+      return { valid: false, reason: 'Trading is disabled for this account' };
+    }
+
+    if (account.maxOrderVolume && volume > account.maxOrderVolume) {
+      return {
+        valid: false,
+        reason: `Order volume ${volume} exceeds account maximum order volume (${account.maxOrderVolume})`,
+      };
+    }
+
+    if (account.maxPositionVolume && (existingPositionVolume + volume) > account.maxPositionVolume) {
+      return {
+        valid: false,
+        reason: `Total volume would exceed account maximum position volume limit (${account.maxPositionVolume})`,
+      };
+    }
+
     if (!symbolCfg) {
       return { valid: false, reason: 'Unknown symbol configuration' };
+    }
+
+    const anyCfg = symbolCfg as any;
+    if (anyCfg.enabled === false) {
+      return { valid: false, reason: `Symbol ${symbolCfg.symbol} is disabled for trading` };
+    }
+
+    if (anyCfg.tradingStatus === 'HALTED') {
+      return { valid: false, reason: `Trading for ${symbolCfg.symbol} is currently halted` };
+    }
+
+    if (anyCfg.tradingStatus === 'UNAVAILABLE') {
+      return { valid: false, reason: `Trading for ${symbolCfg.symbol} is currently unavailable` };
+    }
+
+    if (anyCfg.tradingStatus === 'CLOSE_ONLY') {
+      return { valid: false, reason: `Symbol ${symbolCfg.symbol} is in close-only mode` };
     }
 
     if (symbolCfg.contractSize <= 0) {

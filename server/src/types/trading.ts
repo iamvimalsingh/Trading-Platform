@@ -14,6 +14,7 @@ export interface SymbolConfig {
   name: string;
   category: AssetCategory;
   digits: number;               // decimal precision, e.g. 5 for EURUSD, 2 for XAUUSD/BTC
+  tickSize?: number;           // minimum tick increment, e.g. 0.00001
   contractSize: number;         // e.g. 100,000 for Forex, 100 for Gold, 1 for BTC
   minVolume: number;           // e.g. 0.01
   maxVolume: number;           // e.g. 100.0
@@ -36,11 +37,18 @@ export interface Quote {
   change24hPct: number;
   timestamp: number;
   tickDirection?: 'UP' | 'DOWN' | 'FLAT';
+  marketStatus?: 'OPEN' | 'LIVE' | 'STALE' | 'CLOSED' | 'DISCONNECTED' | 'UNAVAILABLE' | 'WAITING_FOR_PROVIDER' | 'SIMULATED';
+  source?: string;
+  digits?: number;
+  tickSize?: number;
+  providerTimestamp?: number;
+  receivedTimestamp?: number;
+  sequence?: number;
 }
 
 export type OrderSide = 'BUY' | 'SELL';
 export type OrderType = 'MARKET' | 'LIMIT' | 'STOP';
-export type OrderStatus = 'PENDING' | 'WORKING' | 'FILLED' | 'REJECTED' | 'CANCELLED' | 'REPLACED';
+export type OrderStatus = 'NEW' | 'PENDING' | 'WORKING' | 'PARTIALLY_FILLED' | 'FILLED' | 'REJECTED' | 'CANCELLED' | 'REPLACED';
 
 export type ExecutionType = 'OPEN' | 'CLOSE';
 
@@ -165,7 +173,10 @@ export interface TradingAccount {
   marginLevel: number;         // (equity / usedMargin) * 100, 0 if usedMargin is 0
   marginCallLevel: number;     // e.g. 100%
   stopOutLevel: number;        // e.g. 50%
-  status: 'ACTIVE' | 'READ_ONLY' | 'SUSPENDED';
+  status: 'ACTIVE' | 'READ_ONLY' | 'SUSPENDED' | 'DISABLED';
+  tradingEnabled?: boolean;    // Explicit Admin control over trading permission
+  maxOrderVolume?: number;    // Account-level max volume per single order
+  maxPositionVolume?: number; // Account-level max aggregate open volume
   clientId?: string;           // External CRM Client ID
   platform?: 'MT5' | 'MT4' | 'PROPRIETARY';
   sessionMode?: SessionMode;   // 'DEMO' or 'EXTERNAL'

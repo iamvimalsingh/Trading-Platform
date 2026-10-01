@@ -185,6 +185,15 @@ export class TradingRuntime {
             this.sendToAccount<ExecutionPayload>(pos.accountId, 'EXECUTION', { execution: closeOutcome.execution });
           }
 
+          // Persist SL/TP triggered position close atomically to PostgreSQL
+          this.persistence.recordPositionClose(
+            pos,
+            closeOutcome.execution,
+            ledgerEntry,
+            account,
+            account.tenantId
+          ).catch((err) => console.error('[Persistence] SL/TP close persist error:', err));
+
           // Emit POSITION_CLOSED
           this.sendToAccount<PositionClosedPayload>(pos.accountId, 'POSITION_CLOSED', {
             position: pos,
@@ -207,6 +216,10 @@ export class TradingRuntime {
 
         if (order.status === 'REJECTED' || !triggered.positionTemplate) {
           // Trigger-time risk validation failed
+          const account = this.accounts.getAccount(order.accountId);
+          this.persistence.orders.saveOrder(order, account?.tenantId || 'tenant_default').catch((err) =>
+            console.error('[Persistence] Trigger reject persist error:', err)
+          );
           this.sendToAccount<OrderUpdatePayload>(order.accountId, 'ORDER_UPDATE', { order });
           continue;
         }
@@ -244,6 +257,15 @@ export class TradingRuntime {
           account.freeMargin = riskSnapshot.freeMargin;
           account.marginLevel = riskSnapshot.marginLevel;
           this.accounts.updateAccount(account);
+
+          // Persist order fill, position opening, execution, and account state atomically
+          this.persistence.recordOrderExecution(
+            order,
+            newPosition,
+            triggered.execution,
+            account,
+            account.tenantId
+          ).catch((err) => console.error('[Persistence] Triggered order execution persist error:', err));
         }
 
         // Broadcast order update and newly opened position
@@ -449,7 +471,7 @@ export class TradingRuntime {
   /**
    * Execute order on behalf of authenticated connection (MARKET, LIMIT, STOP).
    */
-  public placeOrder(
+  public async placeOrder(
     connectionId: string,
     orderData: {
       symbol: string;
@@ -462,7 +484,7 @@ export class TradingRuntime {
       clientOrderId?: string;
     },
     requestId?: string
-  ): OrderResult {
+  ): Promise<OrderResult> {
     const session = this.clients.getSession(connectionId);
     if (!session) {
       return {
@@ -531,24 +553,26 @@ export class TradingRuntime {
         account.marginLevel = riskSnapshot.marginLevel;
         this.accounts.updateAccount(account);
 
+        // Persist order execution to PostgreSQL atomically
+        await this.persistence.recordOrderExecution(
+          result.order,
+          position,
+          result.execution,
+          account,
+          account.tenantId
+        ).catch((err) => console.error('[Persistence] Order execution persist error:', err));
+
         // Send ORDER_ACK to originating client
         this.sendToClient<OrderAckPayload>(session, 'ORDER_ACK', result, requestId);
         // Send ORDER_UPDATE and POSITION_UPDATE to all account sessions
         this.sendToAccount<OrderUpdatePayload>(account.id, 'ORDER_UPDATE', { order: result.order });
         this.sendToAccount<PositionUpdatePayload>(account.id, 'POSITION_UPDATE', { position });
         this.sendToAccount<AccountStatePayload>(account.id, 'ACCOUNT_STATE', { account });
-
-        // Persist order execution to PostgreSQL
-        this.persistence.recordOrderExecution(
-          result.order,
-          position,
-          result.execution,
-          account.tenantId
-        ).catch((err) => console.error('[Persistence] Order execution persist error:', err));
-        this.persistence.recordAccountUpdate(account).catch((err) => console.error('[Persistence] Account update persist error:', err));
       } else {
         // Working order placed (status === 'WORKING')
-        this.persistence.recordOrderPlacement(result.order, account.tenantId).catch((err) => console.error('[Persistence] Working order persist error:', err));
+        await this.persistence.recordOrderPlacement(result.order, account.tenantId).catch((err) =>
+          console.error('[Persistence] Working order persist error:', err)
+        );
         this.sendToClient<OrderAckPayload>(session, 'ORDER_ACK', result, requestId);
         this.sendToAccount<OrderUpdatePayload>(account.id, 'ORDER_UPDATE', { order: result.order });
       }
@@ -563,11 +587,11 @@ export class TradingRuntime {
   /**
    * Cancel an active WORKING order.
    */
-  public cancelOrder(
+  public async cancelOrder(
     connectionId: string,
     orderId: string,
     requestId?: string
-  ): { success: boolean; order?: Order; error?: string } {
+  ): Promise<{ success: boolean; order?: Order; error?: string }> {
     const session = this.clients.getSession(connectionId);
     if (!session) {
       return { success: false, error: 'Invalid or disconnected session' };
@@ -575,6 +599,10 @@ export class TradingRuntime {
 
     const res = this.orders.cancelWorkingOrder(orderId, session.accountId);
     if (res.success && res.order) {
+      const account = this.accounts.getAccount(session.accountId);
+      await this.persistence.orders.saveOrder(res.order, account?.tenantId || 'tenant_default').catch((err) =>
+        console.error('[Persistence] Cancel order persist error:', err)
+      );
       // Broadcast ORDER_UPDATE with CANCELLED status
       this.sendToAccount<OrderUpdatePayload>(session.accountId, 'ORDER_UPDATE', { order: res.order });
       this.sendToClient(session, 'ORDER_ACK', { success: true, order: res.order }, requestId);
@@ -591,11 +619,11 @@ export class TradingRuntime {
   /**
    * Replace an active WORKING order.
    */
-  public replaceOrder(
+  public async replaceOrder(
     connectionId: string,
     payload: ReplaceOrderPayload,
     requestId?: string
-  ): { success: boolean; oldOrder?: Order; newOrder?: Order; error?: string } {
+  ): Promise<{ success: boolean; oldOrder?: Order; newOrder?: Order; error?: string }> {
     const session = this.clients.getSession(connectionId);
     if (!session) {
       return { success: false, error: 'Invalid or disconnected session' };
@@ -624,6 +652,10 @@ export class TradingRuntime {
     );
 
     if (outcome.success && outcome.oldOrder && outcome.newOrder) {
+      // Persist replaced old order
+      await this.persistence.orders.saveOrder(outcome.oldOrder, account.tenantId).catch((err) =>
+        console.error('[Persistence] Replace old order persist error:', err)
+      );
       // Emit update for old order (REPLACED)
       this.sendToAccount<OrderUpdatePayload>(account.id, 'ORDER_UPDATE', { order: outcome.oldOrder });
 
@@ -653,12 +685,24 @@ export class TradingRuntime {
         account.marginLevel = riskSnapshot.marginLevel;
         this.accounts.updateAccount(account);
 
+        // Persist new order execution atomically
+        await this.persistence.recordOrderExecution(
+          outcome.newOrder,
+          position,
+          outcome.execution,
+          account,
+          account.tenantId
+        ).catch((err) => console.error('[Persistence] Replace new order execution persist error:', err));
+
         this.sendToClient<OrderAckPayload>(session, 'ORDER_ACK', { success: true, order: outcome.newOrder, position }, requestId);
         this.sendToAccount<OrderUpdatePayload>(account.id, 'ORDER_UPDATE', { order: outcome.newOrder });
         this.sendToAccount<PositionUpdatePayload>(account.id, 'POSITION_UPDATE', { position });
         this.sendToAccount<AccountStatePayload>(account.id, 'ACCOUNT_STATE', { account });
       } else {
         // New working order
+        await this.persistence.recordOrderPlacement(outcome.newOrder, account.tenantId).catch((err) =>
+          console.error('[Persistence] Replace new working order persist error:', err)
+        );
         this.sendToClient<OrderAckPayload>(session, 'ORDER_ACK', { success: true, order: outcome.newOrder }, requestId);
         this.sendToAccount<OrderUpdatePayload>(account.id, 'ORDER_UPDATE', { order: outcome.newOrder });
       }
@@ -680,13 +724,13 @@ export class TradingRuntime {
   /**
    * Modify Position SL/TP
    */
-  public modifyPosition(
+  public async modifyPosition(
     connectionId: string,
     positionId: string,
     stopLoss?: number,
     takeProfit?: number,
     requestId?: string
-  ): boolean {
+  ): Promise<boolean> {
     const session = this.clients.getSession(connectionId);
     if (!session) return false;
 
@@ -698,6 +742,10 @@ export class TradingRuntime {
 
     const res = this.positions.modifySLTP(positionId, stopLoss, takeProfit);
     if (res.success && res.position) {
+      const account = this.accounts.getAccount(session.accountId);
+      await this.persistence.positions.savePosition(res.position, account?.tenantId || 'tenant_default').catch((err) =>
+        console.error('[Persistence] Modify position persist error:', err)
+      );
       this.sendToAccount<PositionUpdatePayload>(session.accountId, 'POSITION_UPDATE', { position: res.position }, requestId);
       return true;
     }
@@ -705,13 +753,14 @@ export class TradingRuntime {
   }
 
   /**
-   * Close Position Manually
+   * Close Position Manually (supports Full Close or Partial Close)
    */
-  public closePosition(
+  public async closePosition(
     connectionId: string,
     positionId: string,
+    volume?: number,
     requestId?: string
-  ): boolean {
+  ): Promise<boolean> {
     const session = this.clients.getSession(connectionId);
     if (!session) return false;
 
@@ -728,20 +777,23 @@ export class TradingRuntime {
       return false;
     }
 
-    const res = this.positions.closePosition(positionId, quote, symbolCfg, 'MANUAL');
+    const res = this.positions.closePosition(positionId, quote, symbolCfg, 'MANUAL', volume);
     if (res.success && res.outcome) {
       const account = this.accounts.getAccount(pos.accountId);
       if (account) {
         account.balance = Number((account.balance + res.outcome.realizedPnL).toFixed(2));
+        const desc = res.outcome.isPartialClose
+          ? `Partially Closed ${pos.side} ${res.outcome.closedVolume} ${pos.symbol} @ ${res.outcome.closedPosition.currentPrice} (Remaining: ${res.outcome.remainingVolume}L)`
+          : `Manually Closed ${pos.side} ${pos.volume} ${pos.symbol} @ ${res.outcome.closedPosition.currentPrice}`;
+
         const ledgerEntry = this.accounts.createLedgerEntry(
           account.id,
           'TRADE_PNL',
           res.outcome.realizedPnL,
           account.balance,
-          `Manually Closed ${pos.side} ${pos.volume} ${pos.symbol} @ ${res.outcome.closedPosition.currentPrice}`,
+          desc,
           pos.id
         );
-        this.accounts.updateAccount(account);
 
         if (res.outcome.execution) {
           this.executions.recordExecution(res.outcome.execution);
@@ -763,26 +815,67 @@ export class TradingRuntime {
         account.marginLevel = riskSnapshot.marginLevel;
         this.accounts.updateAccount(account);
 
-        this.sendToAccount<PositionClosedPayload>(account.id, 'POSITION_CLOSED', {
-          position: res.outcome.closedPosition,
-          ledgerEntry,
-          execution: res.outcome.execution,
-        }, requestId);
-        this.sendToAccount<AccountStatePayload>(account.id, 'ACCOUNT_STATE', { account });
-
         // Persist position close atomically to PostgreSQL
-        this.persistence.recordPositionClose(
+        await this.persistence.recordPositionClose(
           res.outcome.closedPosition,
           res.outcome.execution,
           ledgerEntry,
           account,
           account.tenantId
         ).catch((err) => console.error('[Persistence] Position close persist error:', err));
+
+        if (res.outcome.isPartialClose) {
+          this.sendToAccount<PositionUpdatePayload>(account.id, 'POSITION_UPDATE', { position: res.outcome.closedPosition });
+        } else {
+          this.sendToAccount<PositionClosedPayload>(account.id, 'POSITION_CLOSED', {
+            position: res.outcome.closedPosition,
+            ledgerEntry,
+            execution: res.outcome.execution,
+          }, requestId);
+        }
+        this.sendToAccount<AccountStatePayload>(account.id, 'ACCOUNT_STATE', { account });
       }
       return true;
     }
 
     return false;
+  }
+
+  private pendingExecutions: Set<string> = new Set();
+
+  /**
+   * Authoritative execution ingestion method with persistent duplicate protection.
+   */
+  public async processExecution(execution: Execution): Promise<{ success: boolean; duplicate: boolean }> {
+    if (this.executions.isDuplicate(execution.id) || this.pendingExecutions.has(execution.id)) {
+      return { success: false, duplicate: true };
+    }
+    this.pendingExecutions.add(execution.id);
+
+    try {
+      const account = this.accounts.getAccount(execution.accountId);
+      if (!account) {
+        return { success: false, duplicate: false };
+      }
+
+      const persistResult = await this.persistence.applyExecution(
+        execution,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        account.tenantId
+      );
+
+      if (persistResult.duplicate) {
+        return { success: false, duplicate: true };
+      }
+
+      this.executions.recordExecution(execution);
+      return { success: true, duplicate: false };
+    } finally {
+      this.pendingExecutions.delete(execution.id);
+    }
   }
 
   public getRuntimeStats() {

@@ -196,6 +196,7 @@ async function runMarginCorrectnessTests() {
   if (failCount > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runMarginCorrectnessTests().catch((err) => {

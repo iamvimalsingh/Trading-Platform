@@ -13,6 +13,7 @@ import {
   Order,
   OrderRequest,
   OrderResult,
+  OrderStatus,
   Position,
   Quote,
   ReplaceOrderRequest,
@@ -38,6 +39,27 @@ export interface ReplaceOrderOutcome {
 }
 
 export class OrderEngine {
+  public static isValidTransition(from: OrderStatus, to: OrderStatus): boolean {
+    if (from === to) return true;
+    switch (from) {
+      case 'NEW':
+        return to === 'WORKING' || to === 'FILLED' || to === 'REJECTED' || to === 'PENDING';
+      case 'PENDING':
+        return to === 'WORKING' || to === 'FILLED' || to === 'REJECTED' || to === 'CANCELLED';
+      case 'WORKING':
+        return to === 'PARTIALLY_FILLED' || to === 'FILLED' || to === 'CANCELLED' || to === 'REPLACED' || to === 'REJECTED';
+      case 'PARTIALLY_FILLED':
+        return to === 'PARTIALLY_FILLED' || to === 'FILLED' || to === 'CANCELLED';
+      case 'FILLED':
+      case 'CANCELLED':
+      case 'REJECTED':
+      case 'REPLACED':
+        return false;
+      default:
+        return false;
+    }
+  }
+
   private orders: Map<string, Order> = new Map();
   private clientOrderIndex: Map<string, string> = new Map(); // clientOrderId -> orderId
   // Efficient symbol-indexed active working orders: symbol -> Map<orderId, Order>
@@ -185,8 +207,114 @@ export class OrderEngine {
       };
     }
 
+    // Production Hardening: Quote status & Staleness Verification
+    const anyQuote = quote as any;
+    if (anyQuote.marketStatus === 'UNAVAILABLE' || anyQuote.marketStatus === 'CLOSED' || anyQuote.marketStatus === 'DISCONNECTED') {
+      const rejected: Order = {
+        ...baseOrder,
+        status: 'REJECTED',
+        rejectReason: `Market data for ${request.symbol} is currently ${anyQuote.marketStatus}`,
+      };
+      this.saveOrder(rejected);
+      return {
+        result: { success: false, order: rejected, error: rejected.rejectReason },
+      };
+    }
+
+    if (anyQuote.marketStatus === 'STALE') {
+      const rejected: Order = {
+        ...baseOrder,
+        status: 'REJECTED',
+        rejectReason: `Cannot execute order against STALE market quote for ${request.symbol}`,
+      };
+      this.saveOrder(rejected);
+      return {
+        result: { success: false, order: rejected, error: rejected.rejectReason },
+      };
+    }
+
+    // In production mode, reject execution against simulated quotes
+    if (process.env.USE_REAL_MARKET_DATA === 'true' && (anyQuote.marketStatus === 'SIMULATED' || anyQuote.source === 'synthetic_sim')) {
+      const rejected: Order = {
+        ...baseOrder,
+        status: 'REJECTED',
+        rejectReason: 'Simulated quotes are not permitted for live execution in production mode',
+      };
+      this.saveOrder(rejected);
+      return {
+        result: { success: false, order: rejected, error: rejected.rejectReason },
+      };
+    }
+
+    // Quote price sanity verification
+    if (quote.bid <= 0 || quote.ask <= 0 || quote.ask < quote.bid) {
+      const rejected: Order = {
+        ...baseOrder,
+        status: 'REJECTED',
+        rejectReason: `Invalid quote pricing received for ${request.symbol} (bid: ${quote.bid}, ask: ${quote.ask})`,
+      };
+      this.saveOrder(rejected);
+      return {
+        result: { success: false, order: rejected, error: rejected.rejectReason },
+      };
+    }
+
     // Determine Authoritative Execution Price: BUY fills at Ask, SELL fills at Bid
     const executionPrice = ExecutionResolver.resolvePrice(request.side, quote);
+
+    // SL / TP bounds verification
+    if (request.side === 'BUY') {
+      if (request.stopLoss !== undefined && request.stopLoss > 0 && request.stopLoss >= executionPrice) {
+        const rejected: Order = {
+          ...baseOrder,
+          requestedPrice: executionPrice,
+          status: 'REJECTED',
+          rejectReason: `Stop loss (${request.stopLoss}) for BUY order must be strictly below execution price (${executionPrice})`,
+        };
+        this.saveOrder(rejected);
+        return {
+          result: { success: false, order: rejected, error: rejected.rejectReason },
+        };
+      }
+      if (request.takeProfit !== undefined && request.takeProfit > 0 && request.takeProfit <= executionPrice) {
+        const rejected: Order = {
+          ...baseOrder,
+          requestedPrice: executionPrice,
+          status: 'REJECTED',
+          rejectReason: `Take profit (${request.takeProfit}) for BUY order must be strictly above execution price (${executionPrice})`,
+        };
+        this.saveOrder(rejected);
+        return {
+          result: { success: false, order: rejected, error: rejected.rejectReason },
+        };
+      }
+    } else if (request.side === 'SELL') {
+      if (request.stopLoss !== undefined && request.stopLoss > 0 && request.stopLoss <= executionPrice) {
+        const rejected: Order = {
+          ...baseOrder,
+          requestedPrice: executionPrice,
+          status: 'REJECTED',
+          rejectReason: `Stop loss (${request.stopLoss}) for SELL order must be strictly above execution price (${executionPrice})`,
+        };
+        this.saveOrder(rejected);
+        return {
+          result: { success: false, order: rejected, error: rejected.rejectReason },
+        };
+      }
+      if (request.takeProfit !== undefined && request.takeProfit > 0 && request.takeProfit >= executionPrice) {
+        const rejected: Order = {
+          ...baseOrder,
+          requestedPrice: executionPrice,
+          status: 'REJECTED',
+          rejectReason: `Take profit (${request.takeProfit}) for SELL order must be strictly below execution price (${executionPrice})`,
+        };
+        this.saveOrder(rejected);
+        return {
+          result: { success: false, order: rejected, error: rejected.rejectReason },
+        };
+      }
+    }
+
     const requiredMargin = RiskEngine.calculateRequiredMargin(
       request.volume,
       executionPrice,
@@ -333,7 +461,7 @@ export class OrderEngine {
       };
     }
 
-    if (requestedPrice <= 0) {
+    if (requestedPrice <= 0 || isNaN(requestedPrice) || !isFinite(requestedPrice)) {
       const rejected: Order = {
         ...baseOrder,
         status: 'REJECTED',
@@ -343,6 +471,55 @@ export class OrderEngine {
       return {
         result: { success: false, order: rejected, error: rejected.rejectReason },
       };
+    }
+
+    // SL / TP bounds verification for working orders
+    if (request.side === 'BUY') {
+      if (request.stopLoss !== undefined && request.stopLoss > 0 && request.stopLoss >= requestedPrice) {
+        const rejected: Order = {
+          ...baseOrder,
+          status: 'REJECTED',
+          rejectReason: `Stop loss (${request.stopLoss}) for BUY order must be strictly below requested price (${requestedPrice})`,
+        };
+        this.saveOrder(rejected);
+        return {
+          result: { success: false, order: rejected, error: rejected.rejectReason },
+        };
+      }
+      if (request.takeProfit !== undefined && request.takeProfit > 0 && request.takeProfit <= requestedPrice) {
+        const rejected: Order = {
+          ...baseOrder,
+          status: 'REJECTED',
+          rejectReason: `Take profit (${request.takeProfit}) for BUY order must be strictly above requested price (${requestedPrice})`,
+        };
+        this.saveOrder(rejected);
+        return {
+          result: { success: false, order: rejected, error: rejected.rejectReason },
+        };
+      }
+    } else if (request.side === 'SELL') {
+      if (request.stopLoss !== undefined && request.stopLoss > 0 && request.stopLoss <= requestedPrice) {
+        const rejected: Order = {
+          ...baseOrder,
+          status: 'REJECTED',
+          rejectReason: `Stop loss (${request.stopLoss}) for SELL order must be strictly above requested price (${requestedPrice})`,
+        };
+        this.saveOrder(rejected);
+        return {
+          result: { success: false, order: rejected, error: rejected.rejectReason },
+        };
+      }
+      if (request.takeProfit !== undefined && request.takeProfit > 0 && request.takeProfit >= requestedPrice) {
+        const rejected: Order = {
+          ...baseOrder,
+          status: 'REJECTED',
+          rejectReason: `Take profit (${request.takeProfit}) for SELL order must be strictly below requested price (${requestedPrice})`,
+        };
+        this.saveOrder(rejected);
+        return {
+          result: { success: false, order: rejected, error: rejected.rejectReason },
+        };
+      }
     }
 
     // Pre-Trade Risk Verification based on requested price

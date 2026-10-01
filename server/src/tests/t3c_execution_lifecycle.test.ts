@@ -295,7 +295,7 @@ async function runT3CTests() {
   // -------------------------------------------------------------
   runtime.clients.register('test_conn', demoAccount.id, clientWs);
   const initialExecCount = runtime.executions.getExecutionCount();
-  const testOrderPlacement = runtime.placeOrder('test_conn', {
+  const testOrderPlacement = await runtime.placeOrder('test_conn', {
     symbol: 'EURUSD',
     side: 'BUY',
     type: 'MARKET',
@@ -637,6 +637,7 @@ async function runT3CTests() {
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runT3CTests().catch((err) => {

@@ -49,6 +49,7 @@ export class PostgresPositionRepository implements IPositionRepository {
         stop_loss, take_profit, margin_locked, opened_at, closed_at, status
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       ON CONFLICT (id) DO UPDATE SET
+        volume = EXCLUDED.volume,
         current_price = EXCLUDED.current_price,
         unrealized_pnl = EXCLUDED.unrealized_pnl,
         realized_pnl = EXCLUDED.realized_pnl,

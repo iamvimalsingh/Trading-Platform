@@ -20,7 +20,14 @@ export class ExecutionRegistry {
     return `exec_${++this.nextExecutionId}`;
   }
 
+  public isDuplicate(executionId: string): boolean {
+    return this.executions.has(executionId);
+  }
+
   public recordExecution(execution: Execution): Execution {
+    if (this.executions.has(execution.id)) {
+      return this.executions.get(execution.id)!;
+    }
     this.executions.set(execution.id, { ...execution });
 
     // Index by account

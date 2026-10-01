@@ -10,7 +10,7 @@ import { IDatabaseClient } from '../db/DatabaseClient';
 import { Execution, ExecutionType, OrderSide } from '../types/trading';
 
 export interface IExecutionRepository {
-  saveExecution(execution: Execution, tenantId?: string): Promise<void>;
+  saveExecution(execution: Execution, tenantId?: string): Promise<{ inserted: boolean }>;
   getExecution(id: string): Promise<Execution | undefined>;
   getExecutionsForAccount(accountId: string): Promise<Execution[]>;
   getExecutionsForOrder(orderId: string): Promise<Execution[]>;
@@ -39,14 +39,15 @@ export class PostgresExecutionRepository implements IExecutionRepository {
     };
   }
 
-  public async saveExecution(execution: Execution, tenantId: string = 'tenant_default'): Promise<void> {
-    await this.db.query(
+  public async saveExecution(execution: Execution, tenantId: string = 'tenant_default'): Promise<{ inserted: boolean }> {
+    const res = await this.db.query(
       `INSERT INTO trading_executions (
         id, order_id, position_id, account_id, tenant_id, symbol,
         side, type, volume, execution_price, commission, fee,
         realized_pnl, client_order_id, timestamp
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      ON CONFLICT (id) DO NOTHING;`,
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id;`,
       [
         execution.id,
         execution.orderId || null,
@@ -65,6 +66,7 @@ export class PostgresExecutionRepository implements IExecutionRepository {
         execution.timestamp,
       ]
     );
+    return { inserted: res.rows.length > 0 };
   }
 
   public async getExecution(id: string): Promise<Execution | undefined> {

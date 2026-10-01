@@ -79,7 +79,12 @@ export class ClientRegistry {
     if (!session) return [];
 
     const newlySubscribed: string[] = [];
+    const MAX_SUBSCRIPTIONS = 100;
+
     for (const sym of symbols) {
+      if (session.subscribedSymbols.size >= MAX_SUBSCRIPTIONS) {
+        break; // Hardened against runaway subscriptions
+      }
       if (!session.subscribedSymbols.has(sym)) {
         session.subscribedSymbols.add(sym);
         newlySubscribed.push(sym);

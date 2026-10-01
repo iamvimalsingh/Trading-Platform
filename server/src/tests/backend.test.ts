@@ -55,6 +55,8 @@ async function runBackendTests() {
 
   assert(serverPort > 0, 1, 'Server starts and binds to ephemeral test port', `Port: ${serverPort}`);
 
+  await runtime.persistence.init();
+
   // Test 2: Demo session created on server
   const demoAccounts = runtime.accounts.getAllAccounts();
   const demo1 = runtime.accounts.getAccount('DEMO-1001');
@@ -149,7 +151,12 @@ async function runBackendTests() {
   assert(insaneOrderResult.result.success === false && insaneOrderResult.result.order.status === 'REJECTED', 9, 'Server validates margin and rejects order exceeding free margin');
 
   // Test 10: Server fills BUY at Ask
-  const buyAck = messagesReceived.find((m) => m.type === 'ORDER_ACK' && m.requestId === 'order_req_buy');
+  let buyAck: any;
+  for (let i = 0; i < 30; i++) {
+    buyAck = messagesReceived.find((m) => m.type === 'ORDER_ACK' && m.requestId === 'order_req_buy');
+    if (buyAck) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
   const filledOrder = (buyAck?.payload as any)?.order;
   assert(filledOrder?.status === 'FILLED' && filledOrder?.executionPrice > 0, 10, 'Server authoritatively fills BUY at Ask price', `Fill: ${filledOrder?.executionPrice}`);
 
@@ -171,9 +178,13 @@ async function runBackendTests() {
       clientOrderId: 'test_cli_sell_1',
     },
   }));
-  await new Promise((r) => setTimeout(r, 100));
 
-  const sellAck = messagesReceived.find((m) => m.type === 'ORDER_ACK' && m.requestId === 'order_req_sell');
+  let sellAck: any;
+  for (let i = 0; i < 30; i++) {
+    sellAck = messagesReceived.find((m) => m.type === 'ORDER_ACK' && m.requestId === 'order_req_sell');
+    if (sellAck) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
   const filledSellOrder = (sellAck?.payload as any)?.order;
   const currentXauQuote = runtime.market.getQuote('XAUUSD')!;
   assert(filledSellOrder?.status === 'FILLED' && filledSellOrder?.side === 'SELL', 12, 'SELL fills authoritatively at Bid price');
@@ -281,11 +292,11 @@ async function runBackendTests() {
   });
 
   // Client connection is bound to DEMO-1001, attempts to close DEMO-1002's position
-  const unauthorizedCloseResult = runtime.closePosition(connectionId, foreignPos.id);
+  const unauthorizedCloseResult = await runtime.closePosition(connectionId, foreignPos.id);
   assert(unauthorizedCloseResult === false, 21, 'Unauthorized operation across different accounts is strictly rejected');
 
   // Test 22: Invalid order is rejected
-  const invalidOrderResult = runtime.placeOrder(connectionId, {
+  const invalidOrderResult = await runtime.placeOrder(connectionId, {
     symbol: 'NON_EXISTENT_PAIR',
     side: 'BUY',
     type: 'MARKET',
@@ -323,6 +334,7 @@ async function runBackendTests() {
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runBackendTests().catch((err) => {

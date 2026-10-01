@@ -33,6 +33,33 @@ export class ChartDataProvider implements IChartDataProvider {
     timeframe: string = '1m',
     count: number = 120
   ): Promise<CandleBar[]> {
+    const symbolCfg = useTradingStore.getState().symbols[symbol];
+    const digits = symbolCfg?.digits ?? 5;
+
+    // 1. Attempt to fetch server-authoritative historical bars
+    try {
+      if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+        const res = await fetch(`/api/market/history?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=${count}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.bars) && data.bars.length > 0) {
+            return data.bars.map((b: any) => ({
+              time: b.timestamp,
+              open: Number(b.open),
+              high: Number(b.high),
+              low: Number(b.low),
+              close: Number(b.close),
+              volume: Number(b.volume || 100),
+            }));
+          } else if (data && data.status === 'UNAVAILABLE') {
+            return [];
+          }
+        }
+      }
+    } catch {
+      // Fallback if offline / unit testing environment without HTTP server
+    }
+
     const intervalSec = TIMEFRAME_SECONDS[timeframe] || 60;
     let currentQuote = useTradingStore.getState().quotes[symbol];
     if (!currentQuote || typeof currentQuote.mid !== 'number') {
@@ -41,8 +68,6 @@ export class ChartDataProvider implements IChartDataProvider {
         currentQuote = simQuote;
       }
     }
-    const symbolCfg = useTradingStore.getState().symbols[symbol];
-    const digits = symbolCfg?.digits ?? 5;
 
     // Anchor time to provider quote timestamp if available
     const anchorTimestampSec =

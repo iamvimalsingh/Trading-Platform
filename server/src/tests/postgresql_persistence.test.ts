@@ -45,6 +45,7 @@ async function runPersistenceTests() {
 
   // Use isolated test database directory
   const testDbDir = path.resolve(process.cwd(), 'data', 'test_persistence_db');
+  process.env.DATABASE_STORAGE_PATH = testDbDir;
   if (fs.existsSync(testDbDir)) {
     fs.rmSync(testDbDir, { recursive: true, force: true });
   }
@@ -405,9 +406,13 @@ async function runPersistenceTests() {
 
   let closeSucceeded = false;
   await new Promise((r) => {
+    const startTime = Date.now();
     const iv = setInterval(() => {
       if (ws2Messages.find((m) => m.type === 'POSITION_CLOSED')) {
         closeSucceeded = true;
+        clearInterval(iv);
+        r(null);
+      } else if (Date.now() - startTime > 4000) {
         clearInterval(iv);
         r(null);
       }

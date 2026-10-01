@@ -58,6 +58,9 @@ export class PostgresAccountRepository implements IAccountRepository {
       marginCallLevel: Number(row.margin_call_level),
       stopOutLevel: Number(row.stop_out_level),
       status: row.status,
+      tradingEnabled: row.trading_enabled !== undefined && row.trading_enabled !== null ? Boolean(row.trading_enabled) : true,
+      maxOrderVolume: row.max_order_volume ? Number(row.max_order_volume) : undefined,
+      maxPositionVolume: row.max_position_volume ? Number(row.max_position_volume) : undefined,
     };
   }
 
@@ -68,6 +71,14 @@ export class PostgresAccountRepository implements IAccountRepository {
     );
     if (res.rows.length === 0) return undefined;
     return this.mapRow(res.rows[0]);
+  }
+
+  public async getAccountsByTenant(tenantId: string): Promise<TradingAccount[]> {
+    const res = await this.db.query(
+      `SELECT * FROM trading_accounts WHERE tenant_id = $1 ORDER BY created_at ASC;`,
+      [tenantId]
+    );
+    return res.rows.map((r) => this.mapRow(r));
   }
 
   public async getAllAccounts(): Promise<TradingAccount[]> {
@@ -82,8 +93,9 @@ export class PostgresAccountRepository implements IAccountRepository {
         id, tenant_id, client_id, account_number, platform, currency,
         account_type, session_mode, leverage, balance, equity,
         used_margin, free_margin, margin_level, margin_call_level,
-        stop_out_level, status, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        stop_out_level, status, trading_enabled, max_order_volume, max_position_volume,
+        created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       ON CONFLICT (id) DO UPDATE SET
         tenant_id = EXCLUDED.tenant_id,
         client_id = COALESCE(EXCLUDED.client_id, trading_accounts.client_id),
@@ -99,6 +111,9 @@ export class PostgresAccountRepository implements IAccountRepository {
         free_margin = EXCLUDED.free_margin,
         margin_level = EXCLUDED.margin_level,
         status = EXCLUDED.status,
+        trading_enabled = EXCLUDED.trading_enabled,
+        max_order_volume = EXCLUDED.max_order_volume,
+        max_position_volume = EXCLUDED.max_position_volume,
         updated_at = EXCLUDED.updated_at;`,
       [
         account.id,
@@ -118,6 +133,9 @@ export class PostgresAccountRepository implements IAccountRepository {
         account.marginCallLevel || 100,
         account.stopOutLevel || 50,
         account.status || 'ACTIVE',
+        account.tradingEnabled !== undefined ? account.tradingEnabled : true,
+        account.maxOrderVolume ?? null,
+        account.maxPositionVolume ?? null,
         now,
         now,
       ]

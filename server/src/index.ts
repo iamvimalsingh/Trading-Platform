@@ -12,12 +12,23 @@ import { createServer, Server as HttpServer } from 'http';
 import { TradingRuntime } from './runtime/TradingRuntime';
 import { TradingWebSocketServer } from './ws/wsServer';
 import { createAdminRouter } from './admin/adminRouter';
+import { createTradingAdminRouter } from './admin/tradingAdminRouter';
+import { TradingAdminService } from './admin/TradingAdminService';
+import { PostgresAuditRepository } from './repositories/PostgresAuditRepository';
+import { PostgresSpreadRepository } from './repositories/PostgresSpreadRepository';
+import { PostgresSymbolRepository } from './repositories/PostgresSymbolRepository';
+import { AdminSpreadPricingPolicy } from './market/AdminSpreadPricingPolicy';
+import { DatabaseClient } from './db/DatabaseClient';
+import { HistoricalMarketDataService } from './market/HistoricalMarketDataService';
+import { createMarketRouter } from './market/marketRouter';
 
 export interface AppServerContext {
   app: Express;
   httpServer: HttpServer;
   runtime: TradingRuntime;
   wsServer: TradingWebSocketServer;
+  adminService: TradingAdminService;
+  historicalService: HistoricalMarketDataService;
 }
 
 export function createAppAndServer(): AppServerContext {
@@ -26,6 +37,21 @@ export function createAppAndServer(): AppServerContext {
 
   const runtime = new TradingRuntime();
   runtime.start();
+
+  const db = DatabaseClient.getInstance();
+  const auditRepo = new PostgresAuditRepository(db);
+  const spreadRepo = new PostgresSpreadRepository(db);
+  const symbolRepo = new PostgresSymbolRepository(db);
+  const spreadPolicy = new AdminSpreadPricingPolicy();
+  const historicalService = HistoricalMarketDataService.getInstance();
+
+  // If market data provider supports pricingPolicy, wire AdminSpreadPricingPolicy into it
+  if (runtime.market && (runtime.market as any).setPricingPolicy) {
+    (runtime.market as any).setPricingPolicy(spreadPolicy);
+  }
+
+  const adminService = new TradingAdminService(runtime, auditRepo, spreadRepo, symbolRepo, spreadPolicy);
+  adminService.init().catch((err) => console.warn('[TradingAdminService] Non-fatal startup hydration:', err));
 
   const httpServer = createServer(app);
   const wsServer = new TradingWebSocketServer(httpServer, runtime, '/ws');
@@ -40,10 +66,16 @@ export function createAppAndServer(): AppServerContext {
     });
   });
 
-  // Admin & runtime inspection routes
+  // Read-only runtime inspection routes (backward compatibility)
   app.use('/api/runtime', createAdminRouter(runtime));
 
-  return { app, httpServer, runtime, wsServer };
+  // Authoritative Authenticated CRM Admin Trading API (Step 5)
+  app.use('/api/admin/trading', createTradingAdminRouter(adminService));
+
+  // Authoritative Market Data & Historical OHLC API (Step 6)
+  app.use('/api/market', createMarketRouter(historicalService, runtime));
+
+  return { app, httpServer, runtime, wsServer, adminService, historicalService };
 }
 
 export function startServer(port: number = 3000): Promise<AppServerContext> {
