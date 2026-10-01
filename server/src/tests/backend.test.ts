@@ -80,7 +80,14 @@ async function runBackendTests() {
     clientWs.on('open', () => resolve());
   });
 
-  // Give short tick for connection registration
+  clientWs.send(JSON.stringify({
+    type: 'SESSION_INIT',
+    requestId: 'init_demo_test',
+    timestamp: Date.now(),
+    payload: { mode: 'DEMO' },
+  }));
+
+  // Give short tick for connection registration and session init
   await new Promise((r) => setTimeout(r, 60));
 
   const allClients = runtime.clients.getAllClients();

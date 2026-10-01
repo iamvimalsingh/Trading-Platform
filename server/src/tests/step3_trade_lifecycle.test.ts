@@ -510,6 +510,7 @@ async function runStep3LifecycleTests() {
   await new Promise<void>((r) => server1.httpServer.close(() => r()));
   await db.close();
   DatabaseClient.resetInstance();
+  await new Promise((r) => setTimeout(r, 250));
   console.log('  [Server 1] Cold shutdown complete. In-memory state destroyed.');
 
   // Boot up Server 2

@@ -196,6 +196,23 @@ async function runSessionFoundationTests() {
   clientExpired.close();
 
   // -------------------------------------------------------------
+  // TEST 4B: Token signed with wrong secret is rejected with UNAUTHORIZED
+  // -------------------------------------------------------------
+  const wrongSecretToken = SessionTokenService.createLaunchToken(validClaims, 300, 'completely_wrong_secret_12345');
+
+  const clientWrongSecret = await connectHelper();
+  clientWrongSecret.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: wrongSecretToken }, 'req_wrong_secret');
+  const errorWrongSecretMsg = await clientWrongSecret.waitForMessage('ERROR');
+
+  assert(
+    !!errorWrongSecretMsg && (errorWrongSecretMsg.payload as any)?.code === 'UNAUTHORIZED',
+    402,
+    'Token signed with wrong secret is rejected with UNAUTHORIZED',
+    `Code: ${(errorWrongSecretMsg?.payload as any)?.code}`
+  );
+  clientWrongSecret.close();
+
+  // -------------------------------------------------------------
   // TEST 5: Valid token with CRM account 57775 resolves authoritatively (Mode B)
   // -------------------------------------------------------------
   const clientValid = await connectHelper();

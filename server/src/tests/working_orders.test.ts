@@ -69,6 +69,14 @@ async function runWorkingOrdersTests() {
   await new Promise<void>((resolve) => {
     clientWs.on('open', () => resolve());
   });
+
+  clientWs.send(JSON.stringify({
+    type: 'SESSION_INIT',
+    requestId: 'init_demo_wo',
+    timestamp: Date.now(),
+    payload: { mode: 'DEMO' },
+  }));
+
   await new Promise((r) => setTimeout(r, 60));
 
   const demoAccount = runtime.accounts.getAccount('DEMO-1001')!;

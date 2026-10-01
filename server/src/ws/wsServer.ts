@@ -96,20 +96,6 @@ export class TradingWebSocketServer {
             message: result.error || 'External launch authentication failed',
           });
         }
-      } else {
-        // Standalone default launch: initialize demo mode
-        const result = await this.runtime.initializeSession(connectionId, { mode: 'DEMO' });
-        if (result.success && result.readyPayload) {
-          this.runtime.sendToClient(session, 'SESSION_READY', result.readyPayload);
-          const initialQuotes: Record<string, any> = {};
-          for (const sym of result.readyPayload.activeSymbols) {
-            const q = this.runtime.market.getQuote(sym);
-            if (q) initialQuotes[sym] = q;
-          }
-          if (Object.keys(initialQuotes).length > 0) {
-            this.runtime.sendToClient(session, 'QUOTE', { quotes: initialQuotes });
-          }
-        }
       }
     });
   }

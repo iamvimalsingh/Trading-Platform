@@ -123,34 +123,54 @@ export class SessionTokenService {
     }
 
     // 2. Parse payload claims
-    let claims: ExternalSessionTokenPayload;
+    let rawClaims: any;
     try {
       const decodedJson = this.base64UrlDecode(payloadB64);
-      claims = JSON.parse(decodedJson);
+      rawClaims = JSON.parse(decodedJson);
     } catch {
       return { valid: false, error: 'MALFORMED_CLAIMS', errorMessage: 'Unable to parse token payload JSON' };
     }
 
     // 3. Verify expiration
     const nowSec = Math.floor(Date.now() / 1000);
-    if (typeof claims.exp !== 'number' || claims.exp <= nowSec) {
+    if (typeof rawClaims.exp !== 'number' || rawClaims.exp <= nowSec) {
       return {
         valid: false,
-        claims,
+        claims: rawClaims,
         error: 'SESSION_EXPIRED',
-        errorMessage: `Launch token expired at ${new Date(claims.exp * 1000).toISOString()}`,
+        errorMessage: `Launch token expired at ${rawClaims.exp ? new Date(rawClaims.exp * 1000).toISOString() : 'unknown'}`,
       };
     }
 
-    // 4. Validate mandatory domain identity claims
-    if (!claims.sub || !claims.accountId || !claims.accountNumber) {
+    // 4. Validate and normalize mandatory domain identity claims
+    const sub = rawClaims.sub || rawClaims.userId || rawClaims.user_id || rawClaims.clientId || rawClaims.client_id;
+    const accountId = rawClaims.accountId || rawClaims.account_id || rawClaims.accountNumber || rawClaims.account_number;
+    const accountNumber = rawClaims.accountNumber || rawClaims.account_number || rawClaims.accountId || rawClaims.account_id;
+
+    if (!sub || !accountId || !accountNumber) {
       return {
         valid: false,
-        claims,
+        claims: rawClaims,
         error: 'MALFORMED_CLAIMS',
         errorMessage: 'Token payload missing mandatory claims (sub, accountId, accountNumber)',
       };
     }
+
+    const claims: ExternalSessionTokenPayload = {
+      iss: rawClaims.iss || 'crm-backend',
+      sub: String(sub),
+      aud: rawClaims.aud || 'trading-terminal',
+      accountId: String(accountId),
+      accountNumber: String(accountNumber),
+      tenantId: rawClaims.tenantId || rawClaims.tenant_id || 'tenant_default',
+      platform: rawClaims.platform || 'MT5',
+      currency: rawClaims.currency || 'USD',
+      accountType: rawClaims.accountType || rawClaims.account_type || 'LIVE',
+      leverage: rawClaims.leverage ? Number(rawClaims.leverage) : 100,
+      initialBalance: rawClaims.initialBalance || rawClaims.initial_balance || rawClaims.balance,
+      iat: rawClaims.iat || nowSec,
+      exp: rawClaims.exp,
+    };
 
     return {
       valid: true,
