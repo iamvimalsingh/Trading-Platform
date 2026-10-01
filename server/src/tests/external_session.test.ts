@@ -334,7 +334,7 @@ async function runSessionFoundationTests() {
   const token57575 = SessionTokenService.createLaunchToken(
     {
       iss: 'crm-backend',
-      sub: 'client_57575',
+      sub: 'client_A',
       aud: 'trading-terminal',
       accountId: 'acc_crm_uuid_57575',
       accountNumber: '57575',
@@ -370,7 +370,61 @@ async function runSessionFoundationTests() {
   );
 
   // -------------------------------------------------------------
-  // TEST 11: Concurrent First-Time Launches for 57575
+  // TEST 11: Multi-Account & Multi-Client Isolation (Client A Acc 58120 vs Client B Acc 91342)
+  // -------------------------------------------------------------
+  const token58120 = SessionTokenService.createLaunchToken(
+    {
+      iss: 'crm-backend',
+      sub: 'client_A',
+      aud: 'trading-terminal',
+      accountId: 'acc_crm_uuid_58120',
+      accountNumber: '58120',
+      tenantId: 'tenant_default',
+      platform: 'MT5',
+      currency: 'USD',
+      initialBalance: 30000.00,
+    },
+    300,
+    testSecret
+  );
+
+  const token91342 = SessionTokenService.createLaunchToken(
+    {
+      iss: 'crm-backend',
+      sub: 'client_B',
+      aud: 'trading-terminal',
+      accountId: 'acc_crm_uuid_91342',
+      accountNumber: '91342',
+      tenantId: 'tenant_default',
+      platform: 'MT5',
+      currency: 'EUR',
+      initialBalance: 45000.00,
+    },
+    300,
+    testSecret
+  );
+
+  const client58120 = await connectHelper();
+  client58120.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: token58120 }, 'req_58120');
+  const ready58120 = await client58120.waitForMessage('SESSION_READY', 'req_58120');
+  const acc58120 = (ready58120?.payload as any)?.account;
+  client58120.close();
+
+  const client91342 = await connectHelper();
+  client91342.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: token91342 }, 'req_91342');
+  const ready91342 = await client91342.waitForMessage('SESSION_READY', 'req_91342');
+  const acc91342 = (ready91342?.payload as any)?.account;
+  client91342.close();
+
+  assert(
+    !!acc58120 && !!acc91342 && acc58120.id !== acc91342.id && acc58120.accountNumber === '58120' && acc91342.accountNumber === '91342' && acc58120.balance !== acc91342.balance,
+    11,
+    'Client accounts (Client A #58120 vs Client B #91342) are strictly isolated with distinct balances and IDs',
+    `Acc 58120 ($${acc58120?.balance}) vs Acc 91342 (€${acc91342?.balance})`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 12: Concurrent First-Time Launches for Generic Account
   // -------------------------------------------------------------
   const tokenConcurrent = SessionTokenService.createLaunchToken(
     {
@@ -407,7 +461,7 @@ async function runSessionFoundationTests() {
 
   assert(
     !!resConcurrent1 && !!resConcurrent2 && resConcurrent1.id === resConcurrent2.id && resConcurrent1.accountNumber === '99887',
-    11,
+    12,
     'Concurrent first-time external account launches resolve safely without duplication',
     `Account IDs: ${resConcurrent1?.id} vs ${resConcurrent2?.id}`
   );
