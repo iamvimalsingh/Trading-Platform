@@ -433,7 +433,12 @@ export class MarketEngine implements IMarketDataProvider {
       currentClose = close;
     }
 
-    this.historicalBarsCache.set(symbol, bars);
-    return bars;
+    if (this.historicalBarsCache.size > 50) {
+      const firstKey = this.historicalBarsCache.keys().next().value;
+      if (firstKey) this.historicalBarsCache.delete(firstKey);
+    }
+    const boundedBars = bars.length > 500 ? bars.slice(-500) : bars;
+    this.historicalBarsCache.set(symbol, boundedBars);
+    return boundedBars;
   }
 }

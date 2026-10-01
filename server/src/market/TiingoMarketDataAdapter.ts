@@ -661,8 +661,13 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
       currentClose = close;
     }
 
-    this.historicalBarsCache.set(upper, bars);
-    return bars;
+    if (this.historicalBarsCache.size > 50) {
+      const firstKey = this.historicalBarsCache.keys().next().value;
+      if (firstKey) this.historicalBarsCache.delete(firstKey);
+    }
+    const boundedBars = bars.length > 500 ? bars.slice(-500) : bars;
+    this.historicalBarsCache.set(upper, boundedBars);
+    return boundedBars;
   }
 
   public getMetrics(): MarketMetrics {
