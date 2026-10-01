@@ -8,6 +8,7 @@
 
 import 'dotenv/config';
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createAppAndServer } from './server/src/index';
@@ -22,19 +23,46 @@ async function start() {
 
   if (!isProduction) {
     // Development mode: Mount Vite middleware
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (err) {
+      console.warn('[Trading Platform] Vite dev server middleware not loaded:', err);
+    }
   } else {
-    // Production mode: Serve built static files
+    // Production mode: Serve built static files ONLY if dist directory exists
     const distPath = path.resolve(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(distPath, 'index.html'));
-    });
+    const indexPath = path.resolve(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api') || req.path.startsWith('/ws') || req.path === '/health') {
+          return next();
+        }
+        res.sendFile(indexPath);
+      });
+    } else {
+      // Backend/API-only deployment: Fallback for undefined non-API routes
+      app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api') || req.path.startsWith('/ws') || req.path === '/health' || req.path === '/') {
+          return next();
+        }
+        res.status(404).json({
+          error: 'NOT_FOUND',
+          message: `Route ${req.path} not found on Trading Engine backend.`,
+          websocket: '/ws',
+          endpoints: {
+            root: '/',
+            health: '/health',
+            stats: '/api/runtime/stats',
+          },
+        });
+      });
+    }
   }
 
   httpServer.listen(port, '0.0.0.0', () => {

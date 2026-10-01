@@ -56,6 +56,23 @@ export function createAppAndServer(): AppServerContext {
   const httpServer = createServer(app);
   const wsServer = new TradingWebSocketServer(httpServer, runtime, '/ws');
 
+  // Root service status endpoint
+  app.get('/', (_req: Request, res: Response) => {
+    res.json({
+      status: 'ok',
+      service: 'trading-platform-engine',
+      version: '1.0.0',
+      websocket: '/ws',
+      uptime: Math.floor((Date.now() - runtime.startedAt) / 1000),
+      endpoints: {
+        health: '/health',
+        stats: '/api/runtime/stats',
+        market: '/api/market',
+        admin: '/api/admin/trading',
+      },
+    });
+  });
+
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
     res.json({
