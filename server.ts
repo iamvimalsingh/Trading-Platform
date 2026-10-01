@@ -11,6 +11,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 import { createAppAndServer } from './server/src/index';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -34,9 +35,18 @@ async function start() {
       console.warn('[Trading Platform] Vite dev server middleware not loaded:', err);
     }
   } else {
-    // Production mode: Serve built static files ONLY if dist directory exists
+    // Production/Preview mode: Ensure dist/index.html exists (auto-build if missing)
     const distPath = path.resolve(__dirname, 'dist');
     const indexPath = path.resolve(distPath, 'index.html');
+    if (!fs.existsSync(indexPath)) {
+      console.log('[Trading Platform] dist/index.html not found. Running automatic frontend build...');
+      try {
+        execSync('npm run build', { stdio: 'inherit' });
+      } catch (err) {
+        console.warn('[Trading Platform] Automatic frontend build failed:', err);
+      }
+    }
+
     if (fs.existsSync(indexPath)) {
       app.use(express.static(distPath));
       app.get('*', (req, res, next) => {

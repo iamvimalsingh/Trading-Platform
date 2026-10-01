@@ -73,6 +73,28 @@ export class PostgresAccountRepository implements IAccountRepository {
     return this.mapRow(res.rows[0]);
   }
 
+  public async getExternalAccount(tenantId: string, accountId: string, accountNumber: string): Promise<TradingAccount | undefined> {
+    const res = await this.db.query(
+      `SELECT * FROM trading_accounts WHERE tenant_id = $1 AND (id = $2 OR account_number = $3) LIMIT 1;`,
+      [tenantId || 'tenant_default', accountId, accountNumber]
+    );
+    if (res.rows.length === 0) return undefined;
+    return this.mapRow(res.rows[0]);
+  }
+
+  public async updateAccountMetadataOnly(account: TradingAccount): Promise<void> {
+    const now = Date.now();
+    await this.db.query(
+      `UPDATE trading_accounts SET
+        client_id = $1,
+        platform = $2,
+        session_mode = $3,
+        updated_at = $4
+      WHERE id = $5 AND tenant_id = $6;`,
+      [account.clientId || null, account.platform || 'MT5', 'EXTERNAL', now, account.id, account.tenantId || 'tenant_default']
+    );
+  }
+
   public async getAccountsByTenant(tenantId: string): Promise<TradingAccount[]> {
     const res = await this.db.query(
       `SELECT * FROM trading_accounts WHERE tenant_id = $1 ORDER BY created_at ASC;`,
@@ -143,12 +165,13 @@ export class PostgresAccountRepository implements IAccountRepository {
   }
 
   public async provisionExternalAccount(claims: ExternalSessionTokenPayload): Promise<TradingAccount> {
-    const existing = await this.getAccount(claims.accountId) || await this.getAccount(claims.accountNumber);
+    const tenantId = claims.tenantId || 'tenant_default';
+    const existing = await this.getExternalAccount(tenantId, claims.accountId, claims.accountNumber);
     if (existing) {
       existing.clientId = claims.sub;
       if (claims.platform) existing.platform = claims.platform;
       existing.sessionMode = 'EXTERNAL';
-      await this.updateAccount(existing);
+      await this.updateAccountMetadataOnly(existing);
       return existing;
     }
 
@@ -158,7 +181,7 @@ export class PostgresAccountRepository implements IAccountRepository {
 
     const externalAccount: TradingAccount = {
       id: claims.accountId,
-      tenantId: claims.tenantId || 'tenant_default',
+      tenantId,
       accountNumber: claims.accountNumber,
       currency: claims.currency || 'USD',
       accountType: claims.accountType || 'LIVE',
@@ -176,17 +199,54 @@ export class PostgresAccountRepository implements IAccountRepository {
       sessionMode: 'EXTERNAL',
     };
 
-    await this.updateAccount(externalAccount);
-
-    await this.createLedgerEntry(
-      externalAccount.id,
-      'DEPOSIT',
-      initialBal,
-      initialBal,
-      `External Account Hydrated from CRM (${externalAccount.platform} #${externalAccount.accountNumber})`
+    const now = Date.now();
+    await this.db.query(
+      `INSERT INTO trading_accounts (
+        id, tenant_id, client_id, account_number, platform, currency,
+        account_type, session_mode, leverage, balance, equity,
+        used_margin, free_margin, margin_level, margin_call_level,
+        stop_out_level, status, trading_enabled, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      ON CONFLICT (id) DO UPDATE SET
+        client_id = COALESCE(EXCLUDED.client_id, trading_accounts.client_id),
+        session_mode = 'EXTERNAL',
+        updated_at = EXCLUDED.updated_at;`,
+      [
+        externalAccount.id,
+        externalAccount.tenantId,
+        externalAccount.clientId || null,
+        externalAccount.accountNumber,
+        externalAccount.platform || 'MT5',
+        externalAccount.currency || 'USD',
+        externalAccount.accountType || 'LIVE',
+        externalAccount.sessionMode || 'EXTERNAL',
+        externalAccount.leverage || 100,
+        initialBal,
+        initialBal,
+        0,
+        initialBal,
+        0,
+        100,
+        50,
+        'ACTIVE',
+        true,
+        now,
+        now,
+      ]
     );
 
-    return externalAccount;
+    const ledgerRes = await this.db.query(`SELECT COUNT(*) as cnt FROM trading_ledger WHERE account_id = $1;`, [externalAccount.id]);
+    if (Number(ledgerRes.rows[0]?.cnt || 0) === 0) {
+      await this.createLedgerEntry(
+        externalAccount.id,
+        'DEPOSIT',
+        initialBal,
+        initialBal,
+        `External Account Hydrated from CRM (${externalAccount.platform} #${externalAccount.accountNumber})`
+      );
+    }
+
+    return await this.getExternalAccount(tenantId, claims.accountId, claims.accountNumber) || externalAccount;
   }
 
   public async createLedgerEntry(

@@ -390,18 +390,17 @@ export class TradingRuntime {
       // Initialize PostgreSQL persistence layer
       await this.persistence.init();
 
-      // Authoritative account resolution from PostgreSQL repository
-      resolvedAccount = await this.persistence.accounts.getAccount(claims.accountId) ||
-                        await this.persistence.accounts.getAccount(claims.accountNumber);
+      // Authoritative account resolution from PostgreSQL repository with tenant isolation
+      resolvedAccount = await this.persistence.accounts.getExternalAccount(claims.tenantId, claims.accountId, claims.accountNumber);
 
       if (!resolvedAccount) {
         resolvedAccount = await this.persistence.accounts.provisionExternalAccount(claims);
       } else {
-        // Sync verified token claim attributes
+        // Existing account: load it, do not reset balance/positions/orders/ledger
         resolvedAccount.clientId = claims.sub;
         if (claims.platform) resolvedAccount.platform = claims.platform;
         resolvedAccount.sessionMode = 'EXTERNAL';
-        await this.persistence.accounts.updateAccount(resolvedAccount);
+        await this.persistence.accounts.updateAccountMetadataOnly(resolvedAccount);
       }
 
       // Recover persisted state from PostgreSQL into runtime in-memory engines

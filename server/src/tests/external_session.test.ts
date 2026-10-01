@@ -328,6 +328,90 @@ async function runSessionFoundationTests() {
   );
   clientQueryParam.close();
 
+  // -------------------------------------------------------------
+  // TEST 10: External Account 57575 First-Time Provisioning & Re-Login State Preservation
+  // -------------------------------------------------------------
+  const token57575 = SessionTokenService.createLaunchToken(
+    {
+      iss: 'crm-backend',
+      sub: 'client_57575',
+      aud: 'trading-terminal',
+      accountId: 'acc_crm_uuid_57575',
+      accountNumber: '57575',
+      tenantId: 'tenant_default',
+      platform: 'MT5',
+      currency: 'USD',
+      accountType: 'LIVE',
+      leverage: 100,
+      initialBalance: 20000.00,
+    },
+    300,
+    testSecret
+  );
+
+  const client57575_1 = await connectHelper();
+  client57575_1.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: token57575 }, 'req_57575_1');
+  const ready57575_1 = await client57575_1.waitForMessage('SESSION_READY', 'req_57575_1');
+  const acc57575_1 = (ready57575_1?.payload as any)?.account;
+  client57575_1.close();
+
+  // Re-login with same token 57575: ensure account is not recreated and balance is preserved
+  const client57575_2 = await connectHelper();
+  client57575_2.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: token57575 }, 'req_57575_2');
+  const ready57575_2 = await client57575_2.waitForMessage('SESSION_READY', 'req_57575_2');
+  const acc57575_2 = (ready57575_2?.payload as any)?.account;
+  client57575_2.close();
+
+  assert(
+    !!acc57575_1 && acc57575_1.accountNumber === '57575' && !!acc57575_2 && acc57575_2.balance === acc57575_1.balance,
+    10,
+    'External account 57575 provisions correctly on first launch and preserves financial state on re-login',
+    `Account: ${acc57575_2?.accountNumber} | Balance: $${acc57575_2?.balance}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 11: Concurrent First-Time Launches for 57575
+  // -------------------------------------------------------------
+  const tokenConcurrent = SessionTokenService.createLaunchToken(
+    {
+      iss: 'crm-backend',
+      sub: 'client_concurrent',
+      aud: 'trading-terminal',
+      accountId: 'acc_crm_uuid_concurrent',
+      accountNumber: '99887',
+      tenantId: 'tenant_default',
+      platform: 'MT5',
+      currency: 'USD',
+      initialBalance: 15000.00,
+    },
+    300,
+    testSecret
+  );
+
+  const [resConcurrent1, resConcurrent2] = await Promise.all([
+    (async () => {
+      const c = await connectHelper();
+      c.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: tokenConcurrent }, 'req_conc_1');
+      const msg = await c.waitForMessage('SESSION_READY', 'req_conc_1');
+      c.close();
+      return (msg?.payload as any)?.account;
+    })(),
+    (async () => {
+      const c = await connectHelper();
+      c.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: tokenConcurrent }, 'req_conc_2');
+      const msg = await c.waitForMessage('SESSION_READY', 'req_conc_2');
+      c.close();
+      return (msg?.payload as any)?.account;
+    })(),
+  ]);
+
+  assert(
+    !!resConcurrent1 && !!resConcurrent2 && resConcurrent1.id === resConcurrent2.id && resConcurrent1.accountNumber === '99887',
+    11,
+    'Concurrent first-time external account launches resolve safely without duplication',
+    `Account IDs: ${resConcurrent1?.id} vs ${resConcurrent2?.id}`
+  );
+
   // Teardown HTTP & WS servers
   wsServer.close();
   runtime.stop();
