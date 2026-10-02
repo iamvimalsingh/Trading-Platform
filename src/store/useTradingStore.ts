@@ -20,26 +20,9 @@ import {
   SymbolConfig,
   TradingAccount,
 } from '../types/trading';
-import { SocketStatus, tradingSocket } from '../services/tradingSocket';
+import { SocketStatus, tradingSocket, getInitialAccount, onLaunchTokenDetected, extractLaunchToken } from '../services/tradingSocket';
 import { ReplaceOrderPayload, SessionReadyPayload } from '../../server/src/ws/wsProtocol';
 import { ALL_SYMBOLS, INITIAL_SYMBOLS } from '../../server/src/market/MarketEngine';
-
-const INITIAL_ACCOUNT: TradingAccount = {
-  id: 'acc_demo_1001',
-  tenantId: 'tenant_default',
-  accountNumber: 'DEMO-1001',
-  currency: 'USD',
-  accountType: 'DEMO',
-  leverage: 100,
-  balance: 10000.00,
-  equity: 10000.00,
-  usedMargin: 0.00,
-  freeMargin: 10000.00,
-  marginLevel: 0,
-  marginCallLevel: 100,
-  stopOutLevel: 50,
-  status: 'ACTIVE',
-};
 
 export interface TradingState {
   // Connection State
@@ -131,22 +114,13 @@ export const useTradingStore = create<TradingState>((set, get) => {
   }
 
   const initialTheme = getInitialTheme();
+  const initialAccountContext = getInitialAccount();
 
   return {
     socketStatus: 'DISCONNECTED',
 
-    account: INITIAL_ACCOUNT,
-    ledger: [
-      {
-        id: 'led_init_1',
-        accountId: INITIAL_ACCOUNT.id,
-        type: 'DEPOSIT',
-        amount: 10000.00,
-        balanceAfter: 10000.00,
-        description: 'Initial Demo Balance Credited',
-        createdAt: Date.now() - 3600000,
-      },
-    ],
+    account: initialAccountContext.account,
+    ledger: initialAccountContext.ledger,
 
     symbols: initialSymbolsMap,
     activeSymbolList: INITIAL_SYMBOLS,
@@ -186,7 +160,7 @@ export const useTradingStore = create<TradingState>((set, get) => {
         closedTrades: data.positions.filter((p) => p.status === 'CLOSED'),
         orders: data.orders,
         executions: data.executions || [],
-        ledger: data.ledger.length > 0 ? data.ledger : get().ledger,
+        ledger: data.ledger,
       });
     },
 
@@ -414,8 +388,49 @@ export const useTradingStore = create<TradingState>((set, get) => {
     updateFps: (fps: number) => set({ fps }),
 
     resetAccount: () => {
-      // Re-initialize session to reset state
+      // In external CRM mode, resetting demo balance is prohibited; re-verify session with server
+      if (get().account.sessionMode === 'EXTERNAL') {
+        const token = extractLaunchToken();
+        if (token) {
+          tradingSocket.reinitializeSession(token);
+        }
+        return;
+      }
       tradingSocket.connect();
     },
   };
 });
+
+// Reactively bind external account state if a launch token is detected at runtime
+if (typeof window !== 'undefined') {
+  onLaunchTokenDetected((_token, claims) => {
+    if (claims && claims.accountNumber) {
+      const current = useTradingStore.getState().account;
+      if (current.accountNumber !== String(claims.accountNumber) || current.sessionMode !== 'EXTERNAL') {
+        const bal = typeof claims.balance === 'number'
+          ? claims.balance
+          : (typeof claims.initialBalance === 'number' ? claims.initialBalance : 25000.00);
+        useTradingStore.getState().setAccountState({
+          id: claims.accountId || `acc_ext_${claims.accountNumber}`,
+          tenantId: claims.tenantId || 'tenant_default',
+          clientId: claims.sub,
+          accountNumber: String(claims.accountNumber),
+          platform: (claims.platform as any) || 'MT5',
+          currency: claims.currency || 'USD',
+          accountType: (claims.accountType as any) || 'LIVE',
+          sessionMode: 'EXTERNAL',
+          leverage: claims.leverage || 100,
+          balance: bal,
+          equity: bal,
+          usedMargin: 0.00,
+          freeMargin: bal,
+          marginLevel: 0,
+          marginCallLevel: 100,
+          stopOutLevel: 50,
+          status: 'ACTIVE',
+          tradingEnabled: true,
+        });
+      }
+    }
+  });
+}

@@ -138,17 +138,19 @@ export const MobileAccountDrawer: React.FC = () => {
           </div>
         </div>
 
-        {/* Action: Reset Demo Balance */}
-        <button
-          onClick={() => {
-            resetAccount();
-            setOpen(false);
-          }}
-          className="w-full min-h-[48px] rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-          <span>Reset Demo Balance to $10,000.00</span>
-        </button>
+        {/* Action: Reset Demo Balance (DEMO mode only) */}
+        {account.sessionMode !== 'EXTERNAL' && (
+          <button
+            onClick={() => {
+              resetAccount();
+              setOpen(false);
+            }}
+            className="w-full min-h-[48px] rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Reset Demo Balance to $10,000.00</span>
+          </button>
+        )}
       </div>
     </div>
   );

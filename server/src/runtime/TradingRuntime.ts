@@ -419,6 +419,8 @@ export class TradingRuntime {
           this.positions.hydratePositions(hydrated.positions);
           this.orders.hydrateOrders(hydrated.orders);
           this.executions.hydrateExecutions(hydrated.executions);
+        } else {
+          this.accounts.hydrateAccount(resolvedAccount, []);
         }
       } catch (err: any) {
         return {

@@ -175,13 +175,15 @@ export const TerminalHeader: React.FC = () => {
           </span>
         </button>
 
-        <button
-          onClick={resetAccount}
-          className="p-2 rounded-lg bg-slate-100 dark:bg-zinc-900 hover:bg-slate-200 dark:hover:bg-zinc-800 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 transition-colors cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center"
-          title="Reset Demo Balance & Clear Open Trades"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-        </button>
+        {account.sessionMode !== 'EXTERNAL' && (
+          <button
+            onClick={resetAccount}
+            className="p-2 rounded-lg bg-slate-100 dark:bg-zinc-900 hover:bg-slate-200 dark:hover:bg-zinc-800 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 transition-colors cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center"
+            title="Reset Demo Balance & Clear Open Trades"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
     </header>
   );

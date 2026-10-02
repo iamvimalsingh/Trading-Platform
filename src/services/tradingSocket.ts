@@ -24,9 +24,78 @@ import {
   SessionReadyPayload,
   WsEnvelope,
 } from '../../server/src/ws/wsProtocol';
-import { Execution, OrderResult, Quote } from '../types/trading';
+import { Execution, LedgerEntry, OrderResult, Quote, TradingAccount } from '../types/trading';
 
 export type SocketStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED';
+
+export interface LaunchTokenClaims {
+  sub?: string;
+  userId?: string;
+  clientId?: string;
+  accountId?: string;
+  accountNumber?: string;
+  tenantId?: string;
+  platform?: string;
+  currency?: string;
+  accountType?: 'DEMO' | 'LIVE';
+  leverage?: number;
+  balance?: number;
+  initialBalance?: number;
+  exp?: number;
+  iat?: number;
+}
+
+export function parseLaunchTokenClaims(token?: string | null): LaunchTokenClaims | null {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.trim().split('.');
+  if (parts.length !== 3) return null;
+  try {
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    let jsonStr: string;
+    if (typeof atob !== 'undefined') {
+      jsonStr = decodeURIComponent(
+        atob(b64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+    } else if (typeof Buffer !== 'undefined') {
+      jsonStr = Buffer.from(b64, 'base64').toString('utf8');
+    } else {
+      return null;
+    }
+    const raw = JSON.parse(jsonStr);
+    const sub = raw.sub || raw.userId || raw.user_id || raw.clientId || raw.client_id;
+    const accountId = raw.accountId || raw.account_id || raw.accountNumber || raw.account_number;
+    const accountNumber = raw.accountNumber || raw.account_number || raw.accountId || raw.account_id;
+    if (!accountNumber) return null;
+    return {
+      sub: sub ? String(sub) : undefined,
+      accountId: accountId ? String(accountId) : undefined,
+      accountNumber: String(accountNumber),
+      tenantId: raw.tenantId || raw.tenant_id || 'tenant_default',
+      platform: raw.platform || 'MT5',
+      currency: raw.currency || 'USD',
+      accountType: raw.accountType || raw.account_type || 'LIVE',
+      leverage: raw.leverage ? Number(raw.leverage) : 100,
+      balance: typeof raw.balance === 'number' ? raw.balance : (typeof raw.initialBalance === 'number' ? raw.initialBalance : (typeof raw.initial_balance === 'number' ? raw.initial_balance : undefined)),
+      initialBalance: typeof raw.initialBalance === 'number' ? raw.initialBalance : (typeof raw.initial_balance === 'number' ? raw.initial_balance : undefined),
+      exp: raw.exp,
+      iat: raw.iat,
+    };
+  } catch {
+    return null;
+  }
+}
+
+type TokenCallback = (token: string, claims: LaunchTokenClaims) => void;
+const tokenListeners = new Set<TokenCallback>();
+
+export function onLaunchTokenDetected(callback: TokenCallback): () => void {
+  tokenListeners.add(callback);
+  return () => tokenListeners.delete(callback);
+}
 
 let inMemoryLaunchToken: string | null = null;
 
@@ -42,6 +111,86 @@ export function setLaunchToken(token: string): void {
   } catch {
     // Storage access denied in sandboxed/cross-origin iframe
   }
+  const claims = parseLaunchTokenClaims(trimmed);
+  if (claims) {
+    for (const listener of tokenListeners) {
+      try {
+        listener(trimmed, claims);
+      } catch {
+        // ignore listener errors
+      }
+    }
+  }
+}
+
+export function getInitialAccount(): { account: TradingAccount; ledger: LedgerEntry[]; isExternal: boolean } {
+  const token = extractLaunchToken();
+  const claims = parseLaunchTokenClaims(token);
+
+  if (claims && claims.accountNumber) {
+    const bal = typeof claims.balance === 'number' ? claims.balance : (typeof claims.initialBalance === 'number' ? claims.initialBalance : 25000.00);
+    const externalAccount: TradingAccount = {
+      id: claims.accountId || `acc_ext_${claims.accountNumber}`,
+      tenantId: claims.tenantId || 'tenant_default',
+      clientId: claims.sub,
+      accountNumber: String(claims.accountNumber),
+      platform: (claims.platform as any) || 'MT5',
+      currency: claims.currency || 'USD',
+      accountType: (claims.accountType as any) || 'LIVE',
+      sessionMode: 'EXTERNAL',
+      leverage: claims.leverage || 100,
+      balance: bal,
+      equity: bal,
+      usedMargin: 0.00,
+      freeMargin: bal,
+      marginLevel: 0,
+      marginCallLevel: 100,
+      stopOutLevel: 50,
+      status: 'ACTIVE',
+      tradingEnabled: true,
+    };
+
+    return {
+      account: externalAccount,
+      ledger: [],
+      isExternal: true,
+    };
+  }
+
+  // Standalone DEMO fallback
+  return {
+    account: {
+      id: 'acc_demo_1001',
+      tenantId: 'tenant_default',
+      accountNumber: 'DEMO-1001',
+      platform: 'PROPRIETARY',
+      currency: 'USD',
+      accountType: 'DEMO',
+      sessionMode: 'DEMO',
+      leverage: 100,
+      balance: 10000.00,
+      equity: 10000.00,
+      usedMargin: 0.00,
+      freeMargin: 10000.00,
+      marginLevel: 0,
+      marginCallLevel: 100,
+      stopOutLevel: 50,
+      status: 'ACTIVE',
+      tradingEnabled: true,
+    },
+    ledger: [
+      {
+        id: 'led_init_1',
+        accountId: 'acc_demo_1001',
+        type: 'DEPOSIT',
+        amount: 10000.00,
+        balanceAfter: 10000.00,
+        description: 'Initial Demo Balance Credited',
+        createdAt: Date.now() - 3600000,
+      },
+    ],
+    isExternal: false,
+  };
 }
 
 /**
@@ -318,10 +467,10 @@ export class TradingSocketClient {
 
     // Auto reconnect after 2 seconds
     if (!this.reconnectTimer) {
-      this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = (typeof window !== 'undefined' ? window.setTimeout : setTimeout)(() => {
         this.reconnectTimer = null;
         this.connect();
-      }, 2000);
+      }, 2000) as any;
     }
   }
 
@@ -340,9 +489,9 @@ export class TradingSocketClient {
 
   private startPing(): void {
     this.stopPing();
-    this.pingInterval = window.setInterval(() => {
+    this.pingInterval = (typeof window !== 'undefined' ? window.setInterval : setInterval)(() => {
       this.send('PING', {});
-    }, 20000);
+    }, 20000) as any;
   }
 
   private stopPing(): void {
