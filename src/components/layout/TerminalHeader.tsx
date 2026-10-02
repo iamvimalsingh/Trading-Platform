@@ -34,7 +34,7 @@ export const TerminalHeader: React.FC = () => {
               <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs sm:text-sm tracking-tight">
                 TRADING TERMINAL
               </span>
-              {account.sessionMode === 'EXTERNAL' || account.platform === 'MT5' ? (
+              {account.sessionMode === 'EXTERNAL' || account.platform === 'MT5' || (account.accountNumber && !account.accountNumber.startsWith('DEMO-')) ? (
                 <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-300 dark:border-emerald-700/50 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                   {account.platform || 'EXTERNAL'} #{account.accountNumber}

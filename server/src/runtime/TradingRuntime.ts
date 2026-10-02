@@ -390,26 +390,42 @@ export class TradingRuntime {
       // Initialize PostgreSQL persistence layer
       await this.persistence.init();
 
-      // Authoritative account resolution from PostgreSQL repository with tenant isolation
-      resolvedAccount = await this.persistence.accounts.getExternalAccount(claims.tenantId, claims.accountId, claims.accountNumber);
+      try {
+        // Authoritative account resolution from PostgreSQL repository with tenant isolation
+        resolvedAccount = await this.persistence.accounts.getExternalAccount(claims.tenantId, claims.accountId, claims.accountNumber);
 
-      if (!resolvedAccount) {
-        resolvedAccount = await this.persistence.accounts.provisionExternalAccount(claims);
-      } else {
-        // Existing account: load it, do not reset balance/positions/orders/ledger
-        resolvedAccount.clientId = claims.sub;
-        if (claims.platform) resolvedAccount.platform = claims.platform;
-        resolvedAccount.sessionMode = 'EXTERNAL';
-        await this.persistence.accounts.updateAccountMetadataOnly(resolvedAccount);
-      }
+        if (!resolvedAccount) {
+          resolvedAccount = await this.persistence.accounts.provisionExternalAccount(claims);
+        } else {
+          // Client ownership check: Prevent a different client from hijacking an existing account
+          if (resolvedAccount.clientId && resolvedAccount.clientId !== claims.sub) {
+            return {
+              success: false,
+              errorCode: 'UNAUTHORIZED',
+              error: `Selected account '${claims.accountNumber}' belongs to a different client`,
+            };
+          }
+          // Existing account: load it, do not reset balance/positions/orders/ledger
+          resolvedAccount.clientId = claims.sub;
+          if (claims.platform) resolvedAccount.platform = claims.platform;
+          resolvedAccount.sessionMode = 'EXTERNAL';
+          await this.persistence.accounts.updateAccountMetadataOnly(resolvedAccount);
+        }
 
-      // Recover persisted state from PostgreSQL into runtime in-memory engines
-      const hydrated = await this.persistence.hydrateAccountSession(resolvedAccount.id);
-      if (hydrated) {
-        this.accounts.hydrateAccount(hydrated.account, hydrated.ledger);
-        this.positions.hydratePositions(hydrated.positions);
-        this.orders.hydrateOrders(hydrated.orders);
-        this.executions.hydrateExecutions(hydrated.executions);
+        // Recover persisted state from PostgreSQL into runtime in-memory engines
+        const hydrated = await this.persistence.hydrateAccountSession(resolvedAccount.id);
+        if (hydrated) {
+          this.accounts.hydrateAccount(hydrated.account, hydrated.ledger);
+          this.positions.hydratePositions(hydrated.positions);
+          this.orders.hydrateOrders(hydrated.orders);
+          this.executions.hydrateExecutions(hydrated.executions);
+        }
+      } catch (err: any) {
+        return {
+          success: false,
+          errorCode: 'UNAUTHORIZED',
+          error: err?.message || 'Failed to authenticate and resolve selected external account',
+        };
       }
     } else {
       // MODE A — STANDALONE DEMO

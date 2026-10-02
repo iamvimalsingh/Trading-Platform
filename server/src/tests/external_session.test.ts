@@ -466,6 +466,68 @@ async function runSessionFoundationTests() {
     `Account IDs: ${resConcurrent1?.id} vs ${resConcurrent2?.id}`
   );
 
+  // -------------------------------------------------------------
+  // TEST 13: Wrong Client Ownership Rejection
+  // Client B attempts to launch Client A's existing account 57575
+  // -------------------------------------------------------------
+  const tokenHijackClient = SessionTokenService.createLaunchToken(
+    {
+      iss: 'crm-backend',
+      sub: 'client_B_attacker',
+      aud: 'trading-terminal',
+      accountId: 'acc_crm_uuid_57575',
+      accountNumber: '57575',
+      tenantId: 'tenant_default',
+      platform: 'MT5',
+      currency: 'USD',
+    },
+    300,
+    testSecret
+  );
+
+  const clientHijack = await connectHelper();
+  clientHijack.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: tokenHijackClient }, 'req_hijack_client');
+  const errorHijackClientMsg = await clientHijack.waitForMessage('ERROR', 'req_hijack_client');
+  clientHijack.close();
+
+  assert(
+    !!errorHijackClientMsg && (errorHijackClientMsg.payload as any)?.code === 'UNAUTHORIZED',
+    13,
+    'Wrong client ownership is rejected with UNAUTHORIZED (Client B cannot access Client A account)',
+    `Code: ${(errorHijackClientMsg?.payload as any)?.code}`
+  );
+
+  // -------------------------------------------------------------
+  // TEST 14: Wrong Tenant Rejection
+  // Token for account 57575 with different tenantId
+  // -------------------------------------------------------------
+  const tokenWrongTenant = SessionTokenService.createLaunchToken(
+    {
+      iss: 'crm-backend',
+      sub: 'client_A',
+      aud: 'trading-terminal',
+      accountId: 'acc_crm_uuid_57575',
+      accountNumber: '57575',
+      tenantId: 'rogue_broker_tenant',
+      platform: 'MT5',
+      currency: 'USD',
+    },
+    300,
+    testSecret
+  );
+
+  const clientWrongTenant = await connectHelper();
+  clientWrongTenant.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: tokenWrongTenant }, 'req_wrong_tenant');
+  const errorWrongTenantMsg = await clientWrongTenant.waitForMessage('ERROR', 'req_wrong_tenant');
+  clientWrongTenant.close();
+
+  assert(
+    !!errorWrongTenantMsg && (errorWrongTenantMsg.payload as any)?.code === 'UNAUTHORIZED',
+    14,
+    'Wrong tenant is rejected with UNAUTHORIZED (tenant isolation enforced)',
+    `Code: ${(errorWrongTenantMsg?.payload as any)?.code}`
+  );
+
   // Teardown HTTP & WS servers
   wsServer.close();
   runtime.stop();

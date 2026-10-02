@@ -28,6 +28,22 @@ import { Execution, OrderResult, Quote } from '../types/trading';
 
 export type SocketStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED';
 
+let inMemoryLaunchToken: string | null = null;
+
+export function setLaunchToken(token: string): void {
+  if (!token || typeof token !== 'string') return;
+  const trimmed = token.trim();
+  if (trimmed.split('.').length !== 3) return;
+  inMemoryLaunchToken = trimmed;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('trading_terminal_launch_token', trimmed);
+    }
+  } catch {
+    // Storage access denied in sandboxed/cross-origin iframe
+  }
+}
+
 /**
  * Resolves and normalizes the target WebSocket URL for the trading client.
  * Priority:
@@ -38,6 +54,7 @@ export function resolveWebSocketUrl(
   envWsUrl?: string,
   locationObj?: { protocol: string; host: string }
 ): string {
+  let wsUrl = '';
   const envVal = envWsUrl?.trim();
   if (envVal) {
     let normalized = envVal;
@@ -61,40 +78,118 @@ export function resolveWebSocketUrl(
       normalized = `${normalized}/ws`;
     }
 
-    return normalized;
+    wsUrl = normalized;
+  } else {
+    // Fallback to same-origin host
+    const loc = locationObj || (typeof window !== 'undefined' ? window.location : { protocol: 'http:', host: 'localhost:3000' });
+    const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsUrl = `${protocol}//${loc.host}/ws`;
   }
 
-  // Fallback to same-origin host
-  const loc = locationObj || (typeof window !== 'undefined' ? window.location : { protocol: 'http:', host: 'localhost:3000' });
-  const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${loc.host}/ws`;
+  // Pass launch token directly on connection handshake if available
+  const token = extractLaunchToken();
+  if (token) {
+    const sep = wsUrl.includes('?') ? '&' : '?';
+    wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(token)}`;
+  }
+
+  return wsUrl;
 }
 
 /**
- * Safely extracts launch token from URL query parameter (?token=...)
- * or cached sessionStorage. Sanitizes browser URL upon extraction
- * to prevent token leakage in browser history/referrers.
+ * Safely extracts launch token from URL query parameter, URL hash,
+ * in-memory cache, or sessionStorage.
+ * Storage errors in cross-origin iframes will never prevent token return.
  */
 export function extractLaunchToken(): string | null {
+  if (inMemoryLaunchToken) {
+    return inMemoryLaunchToken;
+  }
+
   if (typeof window === 'undefined') return null;
 
+  // 1. Check URL query parameters (all standard CRM parameter names)
   try {
     const params = new URLSearchParams(window.location.search);
-    const tokenFromUrl = params.get('token')?.trim();
-    if (tokenFromUrl) {
-      sessionStorage.setItem('trading_terminal_launch_token', tokenFromUrl);
-      // Clean query parameter from browser address bar without reload
-      params.delete('token');
-      const newSearch = params.toString();
-      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
-      window.history.replaceState({}, document.title, newUrl);
-      return tokenFromUrl;
+    const candidateKeys = ['token', 'launchToken', 'launch_token', 'ssoToken', 'sso_token', 'sso', 'jwt', 'authToken', 'auth_token'];
+    for (const key of candidateKeys) {
+      const val = params.get(key)?.trim();
+      if (val && val.split('.').length === 3) {
+        setLaunchToken(val);
+        try {
+          params.delete(key);
+          const newSearch = params.toString();
+          const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
+          window.history.replaceState({}, document.title, newUrl);
+        } catch {
+          // ignore replaceState restrictions
+        }
+        return val;
+      }
     }
-
-    return sessionStorage.getItem('trading_terminal_launch_token') || null;
   } catch {
-    return null;
+    // ignore
   }
+
+  // 2. Check URL hash (e.g. #token=... or #launchToken=...)
+  try {
+    if (window.location.hash) {
+      const hashStr = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+      const hashParams = new URLSearchParams(hashStr);
+      const candidateKeys = ['token', 'launchToken', 'launch_token', 'ssoToken', 'sso_token', 'sso', 'jwt', 'authToken'];
+      for (const key of candidateKeys) {
+        const val = hashParams.get(key)?.trim();
+        if (val && val.split('.').length === 3) {
+          setLaunchToken(val);
+          return val;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Check sessionStorage safely
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const saved = sessionStorage.getItem('trading_terminal_launch_token')?.trim();
+      if (saved && saved.split('.').length === 3) {
+        inMemoryLaunchToken = saved;
+        return inMemoryLaunchToken;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return inMemoryLaunchToken;
+}
+
+// Global listener for CRM parent window postMessage (for iframe integration)
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (event) => {
+    try {
+      const data = event.data;
+      if (!data) return;
+      let incomingToken: string | undefined;
+      if (typeof data === 'string' && data.trim().split('.').length === 3) {
+        incomingToken = data.trim();
+      } else if (typeof data === 'object') {
+        const candidate = data.token || data.launchToken || data.ssoToken || data.jwt || data.payload?.token;
+        if (typeof candidate === 'string' && candidate.trim().split('.').length === 3) {
+          incomingToken = candidate.trim();
+        }
+      }
+      if (incomingToken) {
+        setLaunchToken(incomingToken);
+        if (tradingSocket) {
+          tradingSocket.reinitializeSession(incomingToken);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  });
 }
 
 type MessageHandler<T = any> = (payload: T, requestId?: string) => void;
@@ -136,6 +231,19 @@ export class TradingSocketClient {
         h(newStatus);
       }
     }
+  }
+
+  public reinitializeSession(token?: string): void {
+    const launchToken = token || extractLaunchToken();
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.disconnect();
+      this.connect();
+      return;
+    }
+    const initPayload: SessionInitPayload = launchToken
+      ? { mode: 'EXTERNAL', token: launchToken }
+      : { mode: 'DEMO' };
+    this.send('SESSION_INIT', initPayload);
   }
 
   public connect(): void {

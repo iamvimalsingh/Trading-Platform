@@ -175,6 +175,20 @@ export class PostgresAccountRepository implements IAccountRepository {
       return existing;
     }
 
+    // Tenant boundary check: Ensure account number does not exist under a different tenant
+    const existingByNumber = await this.getAccount(claims.accountNumber);
+    if (existingByNumber) {
+      if (existingByNumber.tenantId && existingByNumber.tenantId !== tenantId) {
+        throw new Error(`Account ${claims.accountNumber} belongs to a different tenant (${existingByNumber.tenantId})`);
+      }
+      // Same tenant with different ID: update metadata and return existing account safely
+      existingByNumber.clientId = claims.sub;
+      if (claims.platform) existingByNumber.platform = claims.platform;
+      existingByNumber.sessionMode = 'EXTERNAL';
+      await this.updateAccountMetadataOnly(existingByNumber);
+      return existingByNumber;
+    }
+
     const initialBal = typeof claims.initialBalance === 'number' && claims.initialBalance > 0
       ? claims.initialBalance
       : 25000.00;
