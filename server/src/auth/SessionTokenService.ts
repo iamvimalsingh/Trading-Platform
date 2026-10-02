@@ -167,7 +167,20 @@ export class SessionTokenService {
       currency: rawClaims.currency || 'USD',
       accountType: rawClaims.accountType || rawClaims.account_type || 'LIVE',
       leverage: rawClaims.leverage ? Number(rawClaims.leverage) : 100,
-      initialBalance: rawClaims.initialBalance || rawClaims.initial_balance || rawClaims.balance,
+      initialBalance: typeof (rawClaims.initialBalance ?? rawClaims.initial_balance ?? rawClaims.balance) === 'number'
+        ? (rawClaims.initialBalance ?? rawClaims.initial_balance ?? rawClaims.balance)
+        : (rawClaims.initialBalance !== undefined && rawClaims.initialBalance !== null && !isNaN(Number(rawClaims.initialBalance)))
+        ? Number(rawClaims.initialBalance)
+        : (rawClaims.initial_balance !== undefined && rawClaims.initial_balance !== null && !isNaN(Number(rawClaims.initial_balance)))
+        ? Number(rawClaims.initial_balance)
+        : (rawClaims.balance !== undefined && rawClaims.balance !== null && !isNaN(Number(rawClaims.balance)))
+        ? Number(rawClaims.balance)
+        : undefined,
+      balance: typeof (rawClaims.balance ?? rawClaims.initialBalance ?? rawClaims.initial_balance) === 'number'
+        ? (rawClaims.balance ?? rawClaims.initialBalance ?? rawClaims.initial_balance)
+        : (rawClaims.balance !== undefined && rawClaims.balance !== null && !isNaN(Number(rawClaims.balance)))
+        ? Number(rawClaims.balance)
+        : undefined,
       iat: rawClaims.iat || nowSec,
       exp: rawClaims.exp,
     };

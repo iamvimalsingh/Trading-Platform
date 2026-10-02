@@ -258,10 +258,12 @@ async function runTiingoAdapterTests() {
   // -----------------------------------------------------------------
   const oldEnvData = process.env.USE_REAL_MARKET_DATA;
   const oldEnvToken = process.env.TIINGO_API_TOKEN;
+  const oldEnvTwelve = process.env.TWELVE_DATA_API_KEY;
 
   // Case A: Flag false -> returns synthetic MarketEngine
   process.env.USE_REAL_MARKET_DATA = 'false';
   process.env.TIINGO_API_TOKEN = 'test_token';
+  delete process.env.TWELVE_DATA_API_KEY;
   const providerA = createDefaultMarketProvider();
   assert(
     providerA.providerName === 'SyntheticMarketSimulator',
@@ -272,6 +274,7 @@ async function runTiingoAdapterTests() {
   // Case B: Flag true but missing token -> falls back to MarketEngine
   process.env.USE_REAL_MARKET_DATA = 'true';
   process.env.TIINGO_API_TOKEN = '';
+  delete process.env.TWELVE_DATA_API_KEY;
   const providerB = createDefaultMarketProvider();
   assert(
     providerB.providerName === 'SyntheticMarketSimulator',
@@ -282,6 +285,7 @@ async function runTiingoAdapterTests() {
   // Case C: Flag true AND valid token -> initializes TiingoMarketDataAdapter
   process.env.USE_REAL_MARKET_DATA = 'true';
   process.env.TIINGO_API_TOKEN = 'valid_secret_token';
+  delete process.env.TWELVE_DATA_API_KEY;
   const providerC = createDefaultMarketProvider();
   assert(
     providerC.providerName === 'TiingoLiveFeed',
@@ -292,6 +296,8 @@ async function runTiingoAdapterTests() {
   // Restore env
   process.env.USE_REAL_MARKET_DATA = oldEnvData;
   process.env.TIINGO_API_TOKEN = oldEnvToken;
+  if (oldEnvTwelve !== undefined) process.env.TWELVE_DATA_API_KEY = oldEnvTwelve;
+  else delete process.env.TWELVE_DATA_API_KEY;
 
   // -----------------------------------------------------------------
   // 15. Server-Authoritative Runtime Integration (End-to-End Tick Injection)
@@ -467,6 +473,7 @@ async function runTiingoAdapterTests() {
   // -----------------------------------------------------------------
   process.env.USE_REAL_MARKET_DATA = 'true';
   process.env.TIINGO_API_TOKEN = 'test_token_majors';
+  delete process.env.TWELVE_DATA_API_KEY;
   const majorsProvider = createDefaultMarketProvider() as TiingoMarketDataAdapter;
   let majorsPayload: any = null;
   const mockMajorsWs = {
@@ -479,13 +486,13 @@ async function runTiingoAdapterTests() {
   (majorsProvider as any).sendSubscription();
 
   const subscribedTickers: string[] = majorsPayload?.eventData?.tickers || [];
-  const expected5Majors = ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd'];
-  const all5Subscribed = expected5Majors.every((t) => subscribedTickers.includes(t));
+  const expectedMajors = ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad'];
+  const allSubscribed = expectedMajors.every((t) => subscribedTickers.includes(t));
 
   assert(
-    all5Subscribed && subscribedTickers.length === 5,
+    allSubscribed && subscribedTickers.length >= 5,
     25,
-    'Subscribes to all 5 real FX majors: eurusd, gbpusd, usdjpy, usdchf, audusd',
+    'Subscribes to all real FX majors: eurusd, gbpusd, usdjpy, usdchf, audusd, usdcad',
     `Subscribed: ${subscribedTickers.join(', ')}`
   );
 

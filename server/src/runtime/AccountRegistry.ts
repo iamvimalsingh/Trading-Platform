@@ -115,9 +115,11 @@ export class AccountRegistry implements IAccountRepository {
       return existing;
     }
 
-    const initialBal = typeof claims.initialBalance === 'number' && claims.initialBalance > 0
+    const initialBal = typeof claims.initialBalance === 'number'
       ? claims.initialBalance
-      : 25000.00;
+      : typeof claims.balance === 'number'
+      ? claims.balance
+      : 0.00;
 
     const externalAccount: TradingAccount = {
       id: claims.accountId,
@@ -141,13 +143,15 @@ export class AccountRegistry implements IAccountRepository {
 
     this.updateAccount(externalAccount);
 
-    this.createLedgerEntry(
-      externalAccount.id,
-      'DEPOSIT',
-      initialBal,
-      initialBal,
-      `External Account Hydrated from CRM (${externalAccount.platform} #${externalAccount.accountNumber})`
-    );
+    if (initialBal > 0) {
+      this.createLedgerEntry(
+        externalAccount.id,
+        'DEPOSIT',
+        initialBal,
+        initialBal,
+        `External Account Hydrated from CRM (${externalAccount.platform} #${externalAccount.accountNumber})`
+      );
+    }
 
     return externalAccount;
   }

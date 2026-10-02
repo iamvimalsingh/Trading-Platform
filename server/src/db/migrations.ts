@@ -178,6 +178,23 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
     `INSERT INTO trading_accounts (id, tenant_id, client_id, account_number, platform, currency, account_type, session_mode, leverage, balance, equity, used_margin, free_margin, margin_level, margin_call_level, stop_out_level, status, created_at, updated_at)
      VALUES ('acc_demo_1002', 'tenant_default', 'client_demo_1002', 'DEMO-1002', 'PROPRIETARY', 'EUR', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', 1700000000000, 1700000000000)
      ON CONFLICT (id) DO NOTHING;`,
+
+    // 11. Idempotent Data Repair: Target known corrupted test account 57575
+    // Resets synthetic 25,000.00 balance to authoritative 0.00 without touching any other account or valid history.
+    `UPDATE trading_accounts
+     SET balance = 0.00,
+         equity = 0.00,
+         used_margin = 0.00,
+         free_margin = 0.00,
+         margin_level = 0.00
+     WHERE account_number = '57575'
+       AND session_mode = 'EXTERNAL'
+       AND balance = 25000.00;`,
+    `DELETE FROM trading_ledger
+     WHERE account_id IN (SELECT id FROM trading_accounts WHERE account_number = '57575')
+       AND type = 'DEPOSIT'
+       AND amount = 25000.00
+       AND description LIKE '%External Account Hydrated from CRM%';`,
   ];
 
   for (const stmt of statements) {

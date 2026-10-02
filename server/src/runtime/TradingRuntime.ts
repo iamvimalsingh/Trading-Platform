@@ -12,6 +12,8 @@ import { ClientRegistry, ClientSession } from './ClientRegistry';
 import { MarketEngine } from '../market/MarketEngine';
 import type { IMarketDataProvider } from '../market/IMarketDataProvider';
 import { TiingoMarketDataAdapter } from '../market/TiingoMarketDataAdapter';
+import { TwelveDataMarketDataAdapter } from '../market/TwelveDataMarketDataAdapter';
+import { MarketDataRouter } from '../market/MarketDataRouter';
 import { OrderEngine } from '../trading/OrderEngine';
 import { PositionEngine } from '../trading/PositionEngine';
 import { RiskEngine } from '../trading/RiskEngine';
@@ -49,18 +51,48 @@ import { TradingPersistenceService } from './TradingPersistenceService';
 
 export function createDefaultMarketProvider(): IMarketDataProvider {
   const useRealData = process.env.USE_REAL_MARKET_DATA === 'true';
-  const token = process.env.TIINGO_API_TOKEN?.trim();
+  const tiingoToken = process.env.TIINGO_API_TOKEN?.trim();
+  const twelveDataKey = process.env.TWELVE_DATA_API_KEY?.trim();
 
-  if (useRealData && token) {
-    console.log('[TradingRuntime] Initializing Tiingo Market Data Adapter (5 FX Majors: EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD)...');
-    return new TiingoMarketDataAdapter({
-      apiToken: token,
-      tickers: ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd'],
-    });
-  }
+  // If real market data is explicitly enabled and live provider credentials are provided
+  if (useRealData && (tiingoToken || twelveDataKey)) {
+    let tiingoAdapter: TiingoMarketDataAdapter | undefined;
+    let twelveDataAdapter: TwelveDataMarketDataAdapter | undefined;
 
-  if (useRealData && !token) {
-    console.warn('[TradingRuntime] USE_REAL_MARKET_DATA is true, but TIINGO_API_TOKEN is not set. Falling back to synthetic MarketEngine.');
+    if (tiingoToken) {
+      console.log('[TradingRuntime] Initializing Tiingo Market Data Adapter (6 FX Majors: EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD)...');
+      tiingoAdapter = new TiingoMarketDataAdapter({
+        apiToken: tiingoToken,
+        tickers: ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad'],
+      });
+    }
+
+    if (twelveDataKey) {
+      console.log('[TradingRuntime] Initializing Twelve Data Secondary Adapter (Metals & Crypto: BTCUSD, ETHUSD, XAUUSD, XAGUSD)...');
+      twelveDataAdapter = new TwelveDataMarketDataAdapter({
+        apiKey: twelveDataKey,
+        symbols: ['BTCUSD', 'ETHUSD', 'XAUUSD', 'XAGUSD'],
+      });
+    }
+
+    if (tiingoAdapter && twelveDataAdapter) {
+      return new MarketDataRouter({
+        tiingoAdapter,
+        twelveDataAdapter,
+        isRealMarketData: true,
+      });
+    } else if (tiingoAdapter) {
+      return tiingoAdapter;
+    } else if (twelveDataAdapter) {
+      return new MarketDataRouter({
+        twelveDataAdapter,
+        isRealMarketData: true,
+      });
+    }
+
+    if (useRealData && !tiingoToken && !twelveDataKey) {
+      console.warn('[TradingRuntime] USE_REAL_MARKET_DATA is true, but no API keys configured. Falling back to synthetic MarketEngine.');
+    }
   }
 
   return new MarketEngine(10);

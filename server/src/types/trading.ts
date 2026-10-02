@@ -154,7 +154,8 @@ export interface ExternalSessionTokenPayload {
   currency?: string;           // Default 'USD'
   accountType?: 'DEMO' | 'LIVE';
   leverage?: number;           // e.g. 100
-  initialBalance?: number;     // e.g. 25000.00
+  initialBalance?: number;     // e.g. 0.00
+  balance?: number;            // Explicit current balance if provided
   iat: number;                 // Issued at (seconds)
   exp: number;                 // Expiration timestamp (seconds)
 }

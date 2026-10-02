@@ -159,8 +159,8 @@ export const CANONICAL_INSTRUMENTS: InstrumentDefinition[] = [
     quoteCurrency: 'USD',
     description: 'Spot Gold with high pip value and fast momentum.',
     enabled: true,
-    marketDataProvider: 'unassigned',
-    providerSymbolMapping: { metals_feed: 'XAUUSD' },
+    marketDataProvider: 'twelve_data',
+    providerSymbolMapping: { twelve_data: 'XAU/USD', metals_feed: 'XAUUSD' },
     tradingStatus: 'TRADING',
   },
   {
@@ -179,8 +179,8 @@ export const CANONICAL_INSTRUMENTS: InstrumentDefinition[] = [
     quoteCurrency: 'USD',
     description: 'Spot Silver with high volatility and industrial demand.',
     enabled: true,
-    marketDataProvider: 'unassigned',
-    providerSymbolMapping: { metals_feed: 'XAGUSD' },
+    marketDataProvider: 'twelve_data',
+    providerSymbolMapping: { twelve_data: 'XAG/USD', metals_feed: 'XAGUSD' },
     tradingStatus: 'TRADING',
   },
 
@@ -201,8 +201,8 @@ export const CANONICAL_INSTRUMENTS: InstrumentDefinition[] = [
     quoteCurrency: 'USD',
     description: 'Crypto flagship with 24/7 continuous price action.',
     enabled: true,
-    marketDataProvider: 'unassigned',
-    providerSymbolMapping: { crypto_feed: 'BTCUSD' },
+    marketDataProvider: 'twelve_data',
+    providerSymbolMapping: { twelve_data: 'BTC/USD', crypto_feed: 'BTCUSD' },
     tradingStatus: 'TRADING',
   },
   {
@@ -221,8 +221,8 @@ export const CANONICAL_INSTRUMENTS: InstrumentDefinition[] = [
     quoteCurrency: 'USD',
     description: 'Smart contract layer-1 crypto.',
     enabled: true,
-    marketDataProvider: 'unassigned',
-    providerSymbolMapping: { crypto_feed: 'ETHUSD' },
+    marketDataProvider: 'twelve_data',
+    providerSymbolMapping: { twelve_data: 'ETH/USD', crypto_feed: 'ETHUSD' },
     tradingStatus: 'TRADING',
   },
 
@@ -245,7 +245,7 @@ export const CANONICAL_INSTRUMENTS: InstrumentDefinition[] = [
     enabled: true,
     marketDataProvider: 'unassigned',
     providerSymbolMapping: { index_feed: 'SPX500' },
-    tradingStatus: 'TRADING',
+    tradingStatus: 'UNAVAILABLE',
   },
 ];
 

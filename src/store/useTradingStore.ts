@@ -409,7 +409,7 @@ if (typeof window !== 'undefined') {
       if (current.accountNumber !== String(claims.accountNumber) || current.sessionMode !== 'EXTERNAL') {
         const bal = typeof claims.balance === 'number'
           ? claims.balance
-          : (typeof claims.initialBalance === 'number' ? claims.initialBalance : 25000.00);
+          : (typeof claims.initialBalance === 'number' ? claims.initialBalance : 0.00);
         useTradingStore.getState().setAccountState({
           id: claims.accountId || `acc_ext_${claims.accountNumber}`,
           tenantId: claims.tenantId || 'tenant_default',

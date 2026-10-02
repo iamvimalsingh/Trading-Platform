@@ -194,6 +194,83 @@ async function runAccountBindingTests() {
     'initSessionFromSocket preserves authoritative empty ledger (zero demo fallback)'
   );
 
+  // TEST 8: Token with explicit balance 0.00 is preserved as exactly 0.00 (NOT 25,000)
+  const tokenZeroBal = createMockJwt({
+    sub: 'client_crm_zero',
+    accountId: 'acc_crm_57575',
+    accountNumber: '57575',
+    tenantId: 'tenant_broker_live',
+    platform: 'MT5',
+    currency: 'USD',
+    accountType: 'LIVE',
+    leverage: 100,
+    balance: 0.00,
+    exp: Math.floor(Date.now() / 1000) + 300,
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  setLaunchToken(tokenZeroBal);
+  const zeroBalExt = getInitialAccount();
+  assert(
+    zeroBalExt.account.accountNumber === '57575' && zeroBalExt.account.balance === 0.00 && zeroBalExt.account.equity === 0.00 && zeroBalExt.account.freeMargin === 0.00,
+    12,
+    'Explicit balance = 0.00 in launch token results in balance = 0.00 (NOT 25,000)'
+  );
+
+  // TEST 9: Token with explicit initialBalance 0.00 is preserved as exactly 0.00
+  const tokenZeroInitial = createMockJwt({
+    sub: 'client_crm_zero_init',
+    accountId: 'acc_crm_57575',
+    accountNumber: '57575',
+    tenantId: 'tenant_broker_live',
+    platform: 'MT5',
+    currency: 'USD',
+    accountType: 'LIVE',
+    leverage: 100,
+    initialBalance: 0.00,
+    exp: Math.floor(Date.now() / 1000) + 300,
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  setLaunchToken(tokenZeroInitial);
+  const zeroInitExt = getInitialAccount();
+  assert(
+    zeroInitExt.account.balance === 0.00 && zeroInitExt.account.equity === 0.00 && zeroInitExt.account.freeMargin === 0.00,
+    13,
+    'Explicit initialBalance = 0.00 preserves zero balance (NOT 25,000)'
+  );
+
+  // TEST 10: Missing balance in external token defaults safely to 0.00 (NEVER 25,000)
+  const tokenMissingBal = createMockJwt({
+    sub: 'client_crm_missing',
+    accountId: 'acc_crm_57575',
+    accountNumber: '57575',
+    tenantId: 'tenant_broker_live',
+    platform: 'MT5',
+    currency: 'USD',
+    accountType: 'LIVE',
+    leverage: 100,
+    exp: Math.floor(Date.now() / 1000) + 300,
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  setLaunchToken(tokenMissingBal);
+  const missingBalExt = getInitialAccount();
+  assert(
+    missingBalExt.account.balance === 0.00,
+    14,
+    'Missing balance in external token defaults safely to 0.00 (NEVER 25,000)'
+  );
+
+  // TEST 11: Store synchronization with zero balance account
+  useTradingStore.getState().setAccountState(zeroBalExt.account);
+  const zeroStoreAccount = useTradingStore.getState().account;
+  assert(
+    zeroStoreAccount.accountNumber === '57575' && zeroStoreAccount.balance === 0.00 && zeroStoreAccount.equity === 0.00 && zeroStoreAccount.freeMargin === 0.00,
+    15,
+    'Store state holds zero balance external account 57575 with complete financial consistency'
+  );
+
   console.log('\n=============================================================');
   console.log(`  ACCOUNT BINDING TESTS: ${passed} PASSED, ${failed} FAILED`);
   console.log('=============================================================\n');

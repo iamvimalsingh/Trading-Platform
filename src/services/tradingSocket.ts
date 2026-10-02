@@ -79,8 +79,28 @@ export function parseLaunchTokenClaims(token?: string | null): LaunchTokenClaims
       currency: raw.currency || 'USD',
       accountType: raw.accountType || raw.account_type || 'LIVE',
       leverage: raw.leverage ? Number(raw.leverage) : 100,
-      balance: typeof raw.balance === 'number' ? raw.balance : (typeof raw.initialBalance === 'number' ? raw.initialBalance : (typeof raw.initial_balance === 'number' ? raw.initial_balance : undefined)),
-      initialBalance: typeof raw.initialBalance === 'number' ? raw.initialBalance : (typeof raw.initial_balance === 'number' ? raw.initial_balance : undefined),
+      balance: typeof raw.balance === 'number'
+        ? raw.balance
+        : typeof raw.initialBalance === 'number'
+        ? raw.initialBalance
+        : typeof raw.initial_balance === 'number'
+        ? raw.initial_balance
+        : (raw.balance !== undefined && raw.balance !== null && !isNaN(Number(raw.balance)))
+        ? Number(raw.balance)
+        : (raw.initialBalance !== undefined && raw.initialBalance !== null && !isNaN(Number(raw.initialBalance)))
+        ? Number(raw.initialBalance)
+        : undefined,
+      initialBalance: typeof raw.initialBalance === 'number'
+        ? raw.initialBalance
+        : typeof raw.initial_balance === 'number'
+        ? raw.initial_balance
+        : typeof raw.balance === 'number'
+        ? raw.balance
+        : (raw.initialBalance !== undefined && raw.initialBalance !== null && !isNaN(Number(raw.initialBalance)))
+        ? Number(raw.initialBalance)
+        : (raw.balance !== undefined && raw.balance !== null && !isNaN(Number(raw.balance)))
+        ? Number(raw.balance)
+        : undefined,
       exp: raw.exp,
       iat: raw.iat,
     };
@@ -128,7 +148,11 @@ export function getInitialAccount(): { account: TradingAccount; ledger: LedgerEn
   const claims = parseLaunchTokenClaims(token);
 
   if (claims && claims.accountNumber) {
-    const bal = typeof claims.balance === 'number' ? claims.balance : (typeof claims.initialBalance === 'number' ? claims.initialBalance : 25000.00);
+    const bal = typeof claims.balance === 'number'
+      ? claims.balance
+      : typeof claims.initialBalance === 'number'
+      ? claims.initialBalance
+      : 0.00;
     const externalAccount: TradingAccount = {
       id: claims.accountId || `acc_ext_${claims.accountNumber}`,
       tenantId: claims.tenantId || 'tenant_default',

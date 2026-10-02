@@ -189,9 +189,11 @@ export class PostgresAccountRepository implements IAccountRepository {
       return existingByNumber;
     }
 
-    const initialBal = typeof claims.initialBalance === 'number' && claims.initialBalance > 0
+    const initialBal = typeof claims.initialBalance === 'number'
       ? claims.initialBalance
-      : 25000.00;
+      : typeof claims.balance === 'number'
+      ? claims.balance
+      : 0.00;
 
     const externalAccount: TradingAccount = {
       id: claims.accountId,
@@ -249,15 +251,17 @@ export class PostgresAccountRepository implements IAccountRepository {
       ]
     );
 
-    const ledgerRes = await this.db.query(`SELECT COUNT(*) as cnt FROM trading_ledger WHERE account_id = $1;`, [externalAccount.id]);
-    if (Number(ledgerRes.rows[0]?.cnt || 0) === 0) {
-      await this.createLedgerEntry(
-        externalAccount.id,
-        'DEPOSIT',
-        initialBal,
-        initialBal,
-        `External Account Hydrated from CRM (${externalAccount.platform} #${externalAccount.accountNumber})`
-      );
+    if (initialBal > 0) {
+      const ledgerRes = await this.db.query(`SELECT COUNT(*) as cnt FROM trading_ledger WHERE account_id = $1;`, [externalAccount.id]);
+      if (Number(ledgerRes.rows[0]?.cnt || 0) === 0) {
+        await this.createLedgerEntry(
+          externalAccount.id,
+          'DEPOSIT',
+          initialBal,
+          initialBal,
+          `External Account Hydrated from CRM (${externalAccount.platform} #${externalAccount.accountNumber})`
+        );
+      }
     }
 
     return await this.getExternalAccount(tenantId, claims.accountId, claims.accountNumber) || externalAccount;
