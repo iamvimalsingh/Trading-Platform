@@ -513,7 +513,8 @@ async function runStep3LifecycleTests() {
   await new Promise((r) => setTimeout(r, 250));
   console.log('  [Server 1] Cold shutdown complete. In-memory state destroyed.');
 
-  // Boot up Server 2
+  // Boot up Server 2 with the same persisted storage directory
+  DatabaseClient.getInstance(testStorageDir);
   const server2 = createAppAndServer();
   let server2Port = 0;
   await new Promise<void>((resolve) => {

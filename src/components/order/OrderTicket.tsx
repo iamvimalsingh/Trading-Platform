@@ -71,6 +71,12 @@ export const OrderTicket: React.FC = () => {
     );
   }, [volume, pricingForMargin, symbolCfg, account.leverage, account.currency]);
 
+  const isStale = Boolean(quote?.marketStatus === 'STALE' || (quote as any)?.isStale);
+  const isUnavailable = quote?.marketStatus === 'UNAVAILABLE';
+  const isWaiting = !quote || quote?.marketStatus === 'WAITING_FOR_PROVIDER';
+  const isLive = Boolean(quote && quote.marketStatus === 'LIVE' && !isStale && !isUnavailable);
+  const isMarketExecutable = isLive;
+
   const hasEnoughMargin = requiredMargin <= account.freeMargin;
 
   const handleExecute = async (side: OrderSide) => {
@@ -81,9 +87,19 @@ export const OrderTicket: React.FC = () => {
       return;
     }
 
-    if (orderType === 'MARKET' && !quote) {
-      setLastNotification({ type: 'ERROR', message: 'No live quote available for market order' });
-      return;
+    if (orderType === 'MARKET') {
+      if (!quote || isWaiting) {
+        setLastNotification({ type: 'ERROR', message: `Awaiting live quote for ${selectedSymbol}…` });
+        return;
+      }
+      if (isStale) {
+        setLastNotification({ type: 'ERROR', message: 'Waiting for fresh market quote…' });
+        return;
+      }
+      if (isUnavailable) {
+        setLastNotification({ type: 'ERROR', message: 'Market data unavailable' });
+        return;
+      }
     }
 
     let parsedPrice: number | undefined;
@@ -236,11 +252,25 @@ export const OrderTicket: React.FC = () => {
         </div>
       )}
 
-      {/* Missing Market Quote Warning */}
-      {!quote && (
-        <div className="mb-3 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 font-sans">
-          <ShieldAlert className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-          <span className="text-[11px] leading-tight">Awaiting live quote for {selectedSymbol}.</span>
+      {/* Missing / Stale / Unavailable Market Quote Warnings */}
+      {isStale && (
+        <div className="mb-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 font-sans font-medium">
+          <Clock className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="text-[11px] leading-tight">Waiting for fresh market quote…</span>
+        </div>
+      )}
+
+      {isUnavailable && (
+        <div className="mb-3 p-2.5 rounded-lg bg-slate-100 dark:bg-zinc-900 border border-slate-300 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 text-xs flex items-center gap-2 font-sans font-medium">
+          <ShieldAlert className="w-4 h-4 shrink-0 text-slate-500" />
+          <span className="text-[11px] leading-tight">Market data unavailable</span>
+        </div>
+      )}
+
+      {isWaiting && !isStale && !isUnavailable && (
+        <div className="mb-3 p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 text-blue-800 dark:text-blue-300 text-xs flex items-center gap-2 font-sans">
+          <Clock className="w-4 h-4 shrink-0 text-blue-500" />
+          <span className="text-[11px] leading-tight">Awaiting live quote for {selectedSymbol}…</span>
         </div>
       )}
 
@@ -249,7 +279,7 @@ export const OrderTicket: React.FC = () => {
         <div className="flex items-center justify-between text-[11px] font-sans text-slate-500 dark:text-zinc-400 font-medium px-1">
           <span>SELL PRICE</span>
           <span className="font-mono text-[10px] text-slate-400 dark:text-zinc-500">
-            {quote ? `Spread: ${quote.spread}` : ''}
+            {isLive ? `Spread: ${quote!.spread}` : isStale ? 'STALE' : isUnavailable ? 'UNAVAILABLE' : ''}
           </span>
           <span>BUY PRICE</span>
         </div>
@@ -258,7 +288,7 @@ export const OrderTicket: React.FC = () => {
           {/* SELL BUTTON */}
           <button
             onClick={() => handleExecute('SELL')}
-            disabled={(orderType === 'MARKET' && !quote) || isSubmitting}
+            disabled={(orderType === 'MARKET' && !isMarketExecutable) || isSubmitting}
             className="flex flex-col items-center justify-center p-2.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-300 dark:border-rose-800/60 active:scale-[0.98] transition-all cursor-pointer group disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400 text-xs font-bold uppercase tracking-wider mb-0.5">
@@ -267,7 +297,7 @@ export const OrderTicket: React.FC = () => {
             </div>
             <span className="font-mono text-base font-bold text-rose-700 dark:text-zinc-100">
               {orderType === 'MARKET'
-                ? (quote ? quote.bid.toFixed(symbolCfg?.digits || 2) : '—')
+                ? (isLive ? quote!.bid.toFixed(symbolCfg?.digits || 2) : quote ? `${quote.bid.toFixed(symbolCfg?.digits || 2)}` : '—')
                 : (requestedPrice || '—')}
             </span>
           </button>
@@ -275,7 +305,7 @@ export const OrderTicket: React.FC = () => {
           {/* BUY BUTTON */}
           <button
             onClick={() => handleExecute('BUY')}
-            disabled={(orderType === 'MARKET' && !quote) || isSubmitting}
+            disabled={(orderType === 'MARKET' && !isMarketExecutable) || isSubmitting}
             className="flex flex-col items-center justify-center p-2.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 border border-emerald-300 dark:border-emerald-800/60 active:scale-[0.98] transition-all cursor-pointer group disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-0.5">
@@ -284,7 +314,7 @@ export const OrderTicket: React.FC = () => {
             </div>
             <span className="font-mono text-base font-bold text-emerald-700 dark:text-zinc-100">
               {orderType === 'MARKET'
-                ? (quote ? quote.ask.toFixed(symbolCfg?.digits || 2) : '—')
+                ? (isLive ? quote!.ask.toFixed(symbolCfg?.digits || 2) : quote ? `${quote.ask.toFixed(symbolCfg?.digits || 2)}` : '—')
                 : (requestedPrice || '—')}
             </span>
           </button>

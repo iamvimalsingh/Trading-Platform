@@ -81,6 +81,12 @@ export const MobileTradeView: React.FC = () => {
     );
   }, [volume, pricingForMargin, symbolCfg, account.leverage, account.currency]);
 
+  const isStale = Boolean(quote?.marketStatus === 'STALE' || (quote as any)?.isStale);
+  const isUnavailable = quote?.marketStatus === 'UNAVAILABLE';
+  const isWaiting = !quote || quote?.marketStatus === 'WAITING_FOR_PROVIDER';
+  const isLive = Boolean(quote && quote.marketStatus === 'LIVE' && !isStale && !isUnavailable);
+  const isMarketExecutable = isLive;
+
   const hasEnoughMargin = requiredMargin <= account.freeMargin;
 
   const handleExecute = async (side: OrderSide) => {
@@ -91,9 +97,19 @@ export const MobileTradeView: React.FC = () => {
       return;
     }
 
-    if (orderType === 'MARKET' && !quote) {
-      setLastNotification({ type: 'ERROR', message: 'No live quote available' });
-      return;
+    if (orderType === 'MARKET') {
+      if (!quote || isWaiting) {
+        setLastNotification({ type: 'ERROR', message: `Awaiting live quote for ${selectedSymbol}…` });
+        return;
+      }
+      if (isStale) {
+        setLastNotification({ type: 'ERROR', message: 'Waiting for fresh market quote…' });
+        return;
+      }
+      if (isUnavailable) {
+        setLastNotification({ type: 'ERROR', message: 'Market data unavailable' });
+        return;
+      }
     }
 
     let parsedPrice: number | undefined;
@@ -276,12 +292,34 @@ export const MobileTradeView: React.FC = () => {
         </div>
       )}
 
+      {/* Missing / Stale / Unavailable Market Quote Warnings */}
+      {isStale && (
+        <div className="mb-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 font-sans font-medium">
+          <Clock className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="text-xs leading-tight">Waiting for fresh market quote…</span>
+        </div>
+      )}
+
+      {isUnavailable && (
+        <div className="mb-3 p-3 rounded-xl bg-slate-100 dark:bg-zinc-900 border border-slate-300 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 text-xs flex items-center gap-2 font-sans font-medium">
+          <ShieldAlert className="w-5 h-5 shrink-0 text-slate-500" />
+          <span className="text-xs leading-tight">Market data unavailable</span>
+        </div>
+      )}
+
+      {isWaiting && !isStale && !isUnavailable && (
+        <div className="mb-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 text-blue-800 dark:text-blue-300 text-xs flex items-center gap-2 font-sans">
+          <Clock className="w-5 h-5 shrink-0 text-blue-500" />
+          <span className="text-xs leading-tight">Awaiting live quote for {selectedSymbol}…</span>
+        </div>
+      )}
+
       {/* Live Big Buy / Sell Quote Buttons */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         {/* SELL BUTTON */}
         <button
           onClick={() => handleExecute('SELL')}
-          disabled={(orderType === 'MARKET' && !quote) || isSubmitting}
+          disabled={(orderType === 'MARKET' && !isMarketExecutable) || isSubmitting}
           className="min-h-[72px] flex flex-col items-center justify-center p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 active:scale-[0.98] border-2 border-rose-300 dark:border-rose-800/80 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
         >
           <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400 text-xs font-bold uppercase tracking-wider mb-1">
@@ -290,7 +328,7 @@ export const MobileTradeView: React.FC = () => {
           </div>
           <span className="font-mono text-lg font-bold text-rose-700 dark:text-zinc-100">
             {orderType === 'MARKET'
-              ? (quote ? quote.bid.toFixed(symbolCfg?.digits || 2) : '—')
+              ? (isLive ? quote!.bid.toFixed(symbolCfg?.digits || 2) : quote ? `${quote.bid.toFixed(symbolCfg?.digits || 2)}` : '—')
               : (requestedPrice || '—')}
           </span>
         </button>
@@ -298,7 +336,7 @@ export const MobileTradeView: React.FC = () => {
         {/* BUY BUTTON */}
         <button
           onClick={() => handleExecute('BUY')}
-          disabled={(orderType === 'MARKET' && !quote) || isSubmitting}
+          disabled={(orderType === 'MARKET' && !isMarketExecutable) || isSubmitting}
           className="min-h-[72px] flex flex-col items-center justify-center p-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 active:scale-[0.98] border-2 border-emerald-300 dark:border-emerald-800/80 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
         >
           <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-1">
@@ -307,7 +345,7 @@ export const MobileTradeView: React.FC = () => {
           </div>
           <span className="font-mono text-lg font-bold text-emerald-700 dark:text-zinc-100">
             {orderType === 'MARKET'
-              ? (quote ? quote.ask.toFixed(symbolCfg?.digits || 2) : '—')
+              ? (isLive ? quote!.ask.toFixed(symbolCfg?.digits || 2) : quote ? `${quote.ask.toFixed(symbolCfg?.digits || 2)}` : '—')
               : (requestedPrice || '—')}
           </span>
         </button>

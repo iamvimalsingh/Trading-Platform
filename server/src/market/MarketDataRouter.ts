@@ -28,12 +28,20 @@ import { getAllSymbolMappings, getSymbolMapping, SymbolMappingDefinition } from 
 import { ALL_SYMBOLS } from './MarketEngine';
 import { MarketEngine } from './MarketEngine';
 
+export interface CategoryStaleThresholds {
+  FOREX?: number;
+  CRYPTO?: number;
+  COMMODITIES?: number;
+  DEFAULT?: number;
+}
+
 export interface MarketDataRouterOptions {
   tiingoAdapter?: IMarketDataAdapter;
   twelveDataAdapter?: IMarketDataAdapter;
   simulatorFallback?: MarketEngine;
   isRealMarketData?: boolean;
   staleThresholdMs?: number;
+  categoryStaleThresholds?: CategoryStaleThresholds;
 }
 
 export class MarketDataRouter implements IMarketDataProvider {
@@ -50,6 +58,7 @@ export class MarketDataRouter implements IMarketDataProvider {
   private isRunning: boolean = false;
   private staleTimer: NodeJS.Timeout | null = null;
   private readonly staleThresholdMs: number;
+  private readonly categoryStaleThresholds: CategoryStaleThresholds;
   private ticksReceivedCount: number = 0;
   private lastTickTimestamp: number = 0;
 
@@ -59,6 +68,12 @@ export class MarketDataRouter implements IMarketDataProvider {
     this.simulatorFallback = options?.simulatorFallback;
     this.isRealMarketData = options?.isRealMarketData ?? (process.env.USE_REAL_MARKET_DATA === 'true');
     this.staleThresholdMs = options?.staleThresholdMs || 15000;
+    this.categoryStaleThresholds = {
+      FOREX: options?.categoryStaleThresholds?.FOREX ?? 15000,
+      CRYPTO: options?.categoryStaleThresholds?.CRYPTO ?? 30000,
+      COMMODITIES: options?.categoryStaleThresholds?.COMMODITIES ?? 30000,
+      DEFAULT: options?.categoryStaleThresholds?.DEFAULT ?? this.staleThresholdMs,
+    };
 
     // Register quote listeners for Tiingo
     if (this.tiingoAdapter) {
@@ -208,11 +223,21 @@ export class MarketDataRouter implements IMarketDataProvider {
     };
   }
 
+  public getStaleThresholdForSymbol(symbol: string): number {
+    const symCfg = this.getSymbolConfig(symbol);
+    const cat = symCfg?.category?.toUpperCase();
+    if (cat === 'FOREX') return this.categoryStaleThresholds.FOREX ?? 15000;
+    if (cat === 'CRYPTO') return this.categoryStaleThresholds.CRYPTO ?? 30000;
+    if (cat === 'COMMODITIES' || cat === 'METALS') return this.categoryStaleThresholds.COMMODITIES ?? 30000;
+    return this.categoryStaleThresholds.DEFAULT ?? this.staleThresholdMs;
+  }
+
   public isQuoteStale(symbol: string): boolean {
     const q = this.quotes.get(symbol.toUpperCase());
     if (!q) return true;
     if (q.marketStatus === 'STALE') return true;
-    return Date.now() - q.timestamp > this.staleThresholdMs;
+    const threshold = this.getStaleThresholdForSymbol(symbol);
+    return Date.now() - q.timestamp > threshold;
   }
 
   public generateTickBatch(): Record<string, Quote> {
@@ -347,7 +372,8 @@ export class MarketDataRouter implements IMarketDataProvider {
     const staleBatch: Record<string, Quote> = {};
 
     for (const [sym, quote] of this.quotes.entries()) {
-      if (quote.marketStatus === 'LIVE' && now - quote.timestamp > this.staleThresholdMs) {
+      const threshold = this.getStaleThresholdForSymbol(sym);
+      if (quote.marketStatus === 'LIVE' && now - quote.timestamp > threshold) {
         quote.marketStatus = 'STALE';
         staleBatch[sym] = { ...quote };
         hasStale = true;

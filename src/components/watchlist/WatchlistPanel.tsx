@@ -75,7 +75,7 @@ export const WatchlistPanel: React.FC = () => {
 
         {/* Category Selector Tabs */}
         <div className="flex items-center gap-1 overflow-x-auto scrollbar-none text-[10px] pt-0.5">
-          {(['ALL', 'FOREX', 'CRYPTO', 'METALS', 'INDICES'] as const).map((cat) => (
+          {(['ALL', 'FOREX', 'CRYPTO', 'COMMODITIES'] as const).map((cat) => (
             <button
               key={cat}
               onClick={() => setCategoryFilter(cat)}

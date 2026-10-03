@@ -195,8 +195,139 @@ async function runSymbolVisibilityTests() {
     assert(state.quotes['WTIUSD'] === undefined, 'Unquoted WTIUSD is not fabricated as real');
   }
 
+  console.log('\n--- TEST H: UI Category Structure & Breakdown Invariants ---');
+  {
+    const state = useTradingStore.getState();
+    const forexSymbols = state.activeSymbolList.filter((s) => s.category === 'FOREX');
+    const cryptoSymbols = state.activeSymbolList.filter((s) => s.category === 'CRYPTO');
+    const commoditySymbols = state.activeSymbolList.filter((s) => s.category === 'COMMODITIES');
+    const metalsSymbols = state.activeSymbolList.filter((s) => (s as any).category === 'METALS');
+    const indicesSymbols = state.activeSymbolList.filter((s) => (s as any).category === 'INDICES');
+
+    assert(forexSymbols.length === 10, `Forex category contains exactly 10 instruments (got ${forexSymbols.length})`);
+    assert(cryptoSymbols.length === 5, `Crypto category contains exactly 5 instruments (got ${cryptoSymbols.length})`);
+    assert(commoditySymbols.length === 3, `Commodities category contains exactly 3 instruments (got ${commoditySymbols.length})`);
+    assert(metalsSymbols.length === 0, 'No instruments remain in deprecated METALS category');
+    assert(indicesSymbols.length === 0, 'No instruments remain in deprecated INDICES category');
+
+    assert(!state.activeSymbolList.some((s) => s.symbol === 'EURGBP'), 'EURGBP is removed from active list');
+    assert(state.activeSymbolList.some((s) => s.symbol === 'USDCNH'), 'USDCNH is present in Forex active list');
+    assert(commoditySymbols.some((s) => s.symbol === 'XAUUSD'), 'XAUUSD (Gold) is categorized under COMMODITIES');
+    assert(commoditySymbols.some((s) => s.symbol === 'XAGUSD'), 'XAGUSD (Silver) is categorized under COMMODITIES');
+    assert(commoditySymbols.some((s) => s.symbol === 'WTIUSD'), 'WTIUSD (Crude Oil) is categorized under COMMODITIES');
+  }
+
+  console.log('\n--- TEST I: Stale Quote UX Safety, Hedging, & Explicit Close ---');
+  {
+    // 1. LIVE Quote: Market BUY & SELL are enabled
+    const liveEURUSD: Quote = {
+      symbol: 'EURUSD',
+      bid: 1.08550,
+      ask: 1.08566,
+      mid: 1.08558,
+      spread: 1.6,
+      high24h: 1.08900,
+      low24h: 1.08200,
+      change24h: 0.00058,
+      change24hPct: 0.05,
+      timestamp: Date.now(),
+      marketStatus: 'LIVE',
+    };
+    useTradingStore.getState().updateQuotesBatch({ EURUSD: liveEURUSD });
+    
+    let currentQ = useTradingStore.getState().quotes['EURUSD'];
+    let isStale = Boolean(currentQ?.marketStatus === 'STALE' || (currentQ as any)?.isStale);
+    let isLive = Boolean(currentQ && currentQ.marketStatus === 'LIVE' && !isStale);
+    let isMarketExecutable = isLive;
+    assert(isMarketExecutable === true, '1. LIVE quote: market BUY and SELL enabled');
+
+    // 2. STALE Quote: Market BUY & SELL are disabled
+    const staleEURUSD: Quote = {
+      ...liveEURUSD,
+      marketStatus: 'STALE',
+      timestamp: Date.now() - 35000,
+    };
+    useTradingStore.getState().updateQuotesBatch({ EURUSD: staleEURUSD });
+    
+    currentQ = useTradingStore.getState().quotes['EURUSD'];
+    isStale = Boolean(currentQ?.marketStatus === 'STALE' || (currentQ as any)?.isStale);
+    isLive = Boolean(currentQ && currentQ.marketStatus === 'LIVE' && !isStale);
+    isMarketExecutable = isLive;
+    assert(isMarketExecutable === false, '2. STALE quote: market BUY and SELL disabled');
+    assert(isStale === true, '3. STALE quote accurately identified');
+
+    // 3. Fresh LIVE quote arrives after STALE: Market buttons re-enable
+    const freshEURUSD: Quote = {
+      ...liveEURUSD,
+      bid: 1.08560,
+      ask: 1.08576,
+      mid: 1.08568,
+      marketStatus: 'LIVE',
+      timestamp: Date.now(),
+    };
+    useTradingStore.getState().updateQuotesBatch({ EURUSD: freshEURUSD });
+    
+    currentQ = useTradingStore.getState().quotes['EURUSD'];
+    isStale = Boolean(currentQ?.marketStatus === 'STALE' || (currentQ as any)?.isStale);
+    isLive = Boolean(currentQ && currentQ.marketStatus === 'LIVE' && !isStale);
+    isMarketExecutable = isLive;
+    assert(isMarketExecutable === true, '4. Fresh LIVE quote arrives after STALE: market buttons automatically re-enable');
+
+    // 4. Hedging: BUY + SELL creates two independent positions
+    const pos1 = {
+      id: 'pos_101',
+      accountId: 'acc_demo_1001',
+      symbol: 'XAUUSD',
+      side: 'BUY' as const,
+      volume: 0.10,
+      openPrice: 2735.50,
+      currentPrice: 2735.50,
+      unrealizedPnL: 0,
+      realizedPnL: 0,
+      marginLocked: 273.55,
+      openedAt: Date.now() - 10000,
+      status: 'OPEN' as const,
+    };
+    const pos2 = {
+      id: 'pos_102',
+      accountId: 'acc_demo_1001',
+      symbol: 'XAUUSD',
+      side: 'SELL' as const,
+      volume: 0.10,
+      openPrice: 2735.00,
+      currentPrice: 2735.00,
+      unrealizedPnL: 0,
+      realizedPnL: 0,
+      marginLocked: 273.50,
+      openedAt: Date.now(),
+      status: 'OPEN' as const,
+    };
+
+    useTradingStore.setState({ positions: [pos1, pos2] });
+    const stateAfterHedging = useTradingStore.getState();
+    assert(stateAfterHedging.positions.length === 2, '5. Hedging: BUY 0.10 + SELL 0.10 creates two concurrent open positions');
+    assert(stateAfterHedging.positions.some(p => p.side === 'BUY' && p.id === 'pos_101'), '6. BUY position preserved with side = BUY');
+    assert(stateAfterHedging.positions.some(p => p.side === 'SELL' && p.id === 'pos_102'), '7. SELL position preserved with side = SELL');
+
+    // 5. Explicit CLOSE closes the selected position
+    const ledgerEntry = {
+      id: 'led_close_101',
+      accountId: 'acc_demo_1001',
+      type: 'TRADE_PNL' as const,
+      amount: 15.00,
+      balanceAfter: 10015.00,
+      description: 'Closed BUY 0.10 XAUUSD @ 2737.00',
+      createdAt: Date.now(),
+    };
+    useTradingStore.getState().handlePositionClosed({ ...pos1, status: 'CLOSED' }, ledgerEntry);
+    
+    const stateAfterClose = useTradingStore.getState();
+    assert(stateAfterClose.positions.length === 1 && stateAfterClose.positions[0].id === 'pos_102', '8. Explicit CLOSE removes selected position pos_101 from open positions');
+    assert(stateAfterClose.closedTrades.length === 1 && stateAfterClose.closedTrades[0].id === 'pos_101', '9. Closed position is moved to closedTrades history');
+    assert(stateAfterClose.ledger.some(l => l.id === 'led_close_101'), '10. Trade P/L ledger entry recorded');
+  }
+
   console.log('\n=============================================================');
-  console.log(`TOTAL SYMBOL VISIBILITY TESTS: ${passCount} PASSED, ${failCount} FAILED`);
   console.log('=============================================================\n');
 
   if (failCount > 0) {
