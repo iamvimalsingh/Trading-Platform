@@ -180,7 +180,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
      ON CONFLICT (id) DO NOTHING;`,
 
     // 11. Idempotent Data Repair: Target known corrupted test account 57575
-    // Resets synthetic 25,000.00 balance to authoritative 0.00 without touching any other account or valid history.
+    // Resets synthetic 25,000.00 / 10,000.00 balance to authoritative 0.00 without touching any other account or valid history.
     `UPDATE trading_accounts
      SET balance = 0.00,
          equity = 0.00,
@@ -189,12 +189,12 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
          margin_level = 0.00
      WHERE account_number = '57575'
        AND session_mode = 'EXTERNAL'
-       AND balance = 25000.00;`,
+       AND (balance = 25000.00 OR balance = 10000.00);`,
     `DELETE FROM trading_ledger
      WHERE account_id IN (SELECT id FROM trading_accounts WHERE account_number = '57575')
        AND type = 'DEPOSIT'
-       AND amount = 25000.00
-       AND description LIKE '%External Account Hydrated from CRM%';`,
+       AND (amount = 25000.00 OR amount = 10000.00)
+       AND (description LIKE '%External Account Hydrated from CRM%' OR description LIKE '%Initial Demo Balance%');`,
   ];
 
   for (const stmt of statements) {

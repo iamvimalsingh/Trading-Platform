@@ -83,7 +83,7 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     this.maxReconnectDelayMs = options?.maxReconnectDelayMs || 30000;
 
     // Default canonical symbols managed by Twelve Data
-    const initialSymbols = options?.symbols || ['BTCUSD', 'ETHUSD', 'XAUUSD', 'XAGUSD'];
+    const initialSymbols = options?.symbols || ['BTCUSD', 'ETHUSD', 'BNBUSD', 'SOLUSD', 'XRPUSD', 'XAUUSD', 'XAGUSD', 'WTIUSD'];
     for (const sym of initialSymbols) {
       const mapping = getSymbolMapping(sym);
       if (mapping && mapping.isAvailableOnStandardTier && mapping.twelveDataSymbol) {

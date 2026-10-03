@@ -2,14 +2,20 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * SERVER-AUTHORITATIVE MARKET ENGINE
+ * SERVER-AUTHORITATIVE MARKET ENGINE (18 ACTIVE INSTRUMENTS)
  * Deterministic quote generation and controlled tick loop.
+ * 
+ * Final 18 Active Instruments:
+ * FOREX (10): EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD, USDCNH, EURJPY, GBPJPY
+ * CRYPTO (5): BTCUSD, ETHUSD, BNBUSD, SOLUSD, XRPUSD
+ * COMMODITIES (3): XAUUSD, XAGUSD, WTIUSD
  */
 
 import { OHLCVBar, Quote, SymbolConfig } from '../types/trading';
 import type { IMarketDataProvider, MarketMetrics, QuoteBatchListener } from './IMarketDataProvider';
 
 export const INITIAL_SYMBOLS: SymbolConfig[] = [
+  // FOREX (10)
   {
     id: 's_eurusd',
     symbol: 'EURUSD',
@@ -56,34 +62,19 @@ export const INITIAL_SYMBOLS: SymbolConfig[] = [
     description: 'Asian session benchmark FX instrument.',
   },
   {
-    id: 's_xauusd',
-    symbol: 'XAUUSD',
-    name: 'Gold (Troy Ounce) / USD',
-    category: 'METALS',
-    digits: 2,
-    contractSize: 100,
+    id: 's_usdchf',
+    symbol: 'USDCHF',
+    name: 'US Dollar / Swiss Franc',
+    category: 'FOREX',
+    digits: 5,
+    contractSize: 100000,
     minVolume: 0.01,
-    maxVolume: 50.0,
+    maxVolume: 100.0,
     volumeStep: 0.01,
-    defaultSpreadPoints: 25.0,
-    baseCurrency: 'XAU',
-    quoteCurrency: 'USD',
-    description: 'Spot Gold with high pip value and fast momentum.',
-  },
-  {
-    id: 's_btcusd',
-    symbol: 'BTCUSD',
-    name: 'Bitcoin / US Dollar',
-    category: 'CRYPTO',
-    digits: 2,
-    contractSize: 1,
-    minVolume: 0.01,
-    maxVolume: 10.0,
-    volumeStep: 0.01,
-    defaultSpreadPoints: 120.0,
-    baseCurrency: 'BTC',
-    quoteCurrency: 'USD',
-    description: 'Crypto flagship with 24/7 continuous price action.',
+    defaultSpreadPoints: 1.5,
+    baseCurrency: 'USD',
+    quoteCurrency: 'CHF',
+    description: 'Safe-haven currency pair.',
   },
   {
     id: 's_audusd',
@@ -98,7 +89,7 @@ export const INITIAL_SYMBOLS: SymbolConfig[] = [
     defaultSpreadPoints: 1.4,
     baseCurrency: 'AUD',
     quoteCurrency: 'USD',
-    description: 'Commodity currency.',
+    description: 'Commodity currency benchmark.',
   },
   {
     id: 's_usdcad',
@@ -116,19 +107,81 @@ export const INITIAL_SYMBOLS: SymbolConfig[] = [
     description: 'North American trade pair.',
   },
   {
-    id: 's_usdchf',
-    symbol: 'USDCHF',
-    name: 'US Dollar / Swiss Franc',
+    id: 's_nzdusd',
+    symbol: 'NZDUSD',
+    name: 'New Zealand Dollar / US Dollar',
     category: 'FOREX',
     digits: 5,
     contractSize: 100000,
     minVolume: 0.01,
     maxVolume: 100.0,
     volumeStep: 0.01,
-    defaultSpreadPoints: 1.5,
+    defaultSpreadPoints: 1.8,
+    baseCurrency: 'NZD',
+    quoteCurrency: 'USD',
+    description: 'Kiwi: Asia-Pacific commodity benchmark.',
+  },
+  {
+    id: 's_usdcnh',
+    symbol: 'USDCNH',
+    name: 'US Dollar / Chinese Yuan (Offshore)',
+    category: 'FOREX',
+    digits: 4,
+    contractSize: 100000,
+    minVolume: 0.01,
+    maxVolume: 100.0,
+    volumeStep: 0.01,
+    defaultSpreadPoints: 2.5,
     baseCurrency: 'USD',
-    quoteCurrency: 'CHF',
-    description: 'Safe-haven currency pair.',
+    quoteCurrency: 'CNH',
+    description: 'Offshore Chinese Yuan / RMB currency instrument.',
+  },
+  {
+    id: 's_eurjpy',
+    symbol: 'EURJPY',
+    name: 'Euro / Japanese Yen',
+    category: 'FOREX',
+    digits: 3,
+    contractSize: 100000,
+    minVolume: 0.01,
+    maxVolume: 100.0,
+    volumeStep: 0.01,
+    defaultSpreadPoints: 2.0,
+    baseCurrency: 'EUR',
+    quoteCurrency: 'JPY',
+    description: 'Major cross pair with dynamic trends.',
+  },
+  {
+    id: 's_gbpjpy',
+    symbol: 'GBPJPY',
+    name: 'British Pound / Japanese Yen',
+    category: 'FOREX',
+    digits: 3,
+    contractSize: 100000,
+    minVolume: 0.01,
+    maxVolume: 100.0,
+    volumeStep: 0.01,
+    defaultSpreadPoints: 2.4,
+    baseCurrency: 'GBP',
+    quoteCurrency: 'JPY',
+    description: 'Geppy: High-volatility cross pair.',
+  },
+
+  // CRYPTO (5)
+  {
+    id: 's_btcusd',
+    symbol: 'BTCUSD',
+    name: 'Bitcoin / US Dollar',
+    category: 'CRYPTO',
+    digits: 2,
+    contractSize: 1,
+    minVolume: 0.01,
+    maxVolume: 10.0,
+    volumeStep: 0.01,
+    defaultSpreadPoints: 120.0,
+    baseCurrency: 'BTC',
+    quoteCurrency: 'USD',
+    description: 'Crypto flagship with 24/7 continuous price action.',
   },
   {
     id: 's_ethusd',
@@ -143,92 +196,123 @@ export const INITIAL_SYMBOLS: SymbolConfig[] = [
     defaultSpreadPoints: 20.0,
     baseCurrency: 'ETH',
     quoteCurrency: 'USD',
-    description: 'Smart contract layer-1 crypto.',
+    description: 'Smart contract layer-1 crypto flagship.',
   },
   {
-    id: 's_us500',
-    symbol: 'US500',
-    name: 'S&P 500 Index Cash',
-    category: 'INDICES',
+    id: 's_bnbusd',
+    symbol: 'BNBUSD',
+    name: 'Binance Coin / US Dollar',
+    category: 'CRYPTO',
     digits: 2,
-    contractSize: 10,
-    minVolume: 0.1,
+    contractSize: 1,
+    minVolume: 0.01,
     maxVolume: 50.0,
-    volumeStep: 0.1,
-    defaultSpreadPoints: 40.0,
-    baseCurrency: 'USD',
+    volumeStep: 0.01,
+    defaultSpreadPoints: 15.0,
+    baseCurrency: 'BNB',
     quoteCurrency: 'USD',
-    description: 'US Broad market equities index.',
+    description: 'Binance ecosystem token.',
+  },
+  {
+    id: 's_solusd',
+    symbol: 'SOLUSD',
+    name: 'Solana / US Dollar',
+    category: 'CRYPTO',
+    digits: 2,
+    contractSize: 1,
+    minVolume: 0.01,
+    maxVolume: 100.0,
+    volumeStep: 0.01,
+    defaultSpreadPoints: 10.0,
+    baseCurrency: 'SOL',
+    quoteCurrency: 'USD',
+    description: 'High-throughput layer-1 blockchain.',
+  },
+  {
+    id: 's_xrpusd',
+    symbol: 'XRPUSD',
+    name: 'Ripple / US Dollar',
+    category: 'CRYPTO',
+    digits: 4,
+    contractSize: 1,
+    minVolume: 1.0,
+    maxVolume: 10000.0,
+    volumeStep: 1.0,
+    defaultSpreadPoints: 5.0,
+    baseCurrency: 'XRP',
+    quoteCurrency: 'USD',
+    description: 'Cross-border digital settlement asset.',
+  },
+
+  // COMMODITIES (3)
+  {
+    id: 's_xauusd',
+    symbol: 'XAUUSD',
+    name: 'Gold (Troy Ounce) / USD',
+    category: 'COMMODITIES',
+    digits: 2,
+    contractSize: 100,
+    minVolume: 0.01,
+    maxVolume: 50.0,
+    volumeStep: 0.01,
+    defaultSpreadPoints: 25.0,
+    baseCurrency: 'XAU',
+    quoteCurrency: 'USD',
+    description: 'Spot Gold with high pip value and fast momentum.',
+  },
+  {
+    id: 's_xagusd',
+    symbol: 'XAGUSD',
+    name: 'Silver (Troy Ounce) / USD',
+    category: 'COMMODITIES',
+    digits: 3,
+    contractSize: 5000,
+    minVolume: 0.01,
+    maxVolume: 50.0,
+    volumeStep: 0.01,
+    defaultSpreadPoints: 3.5,
+    baseCurrency: 'XAG',
+    quoteCurrency: 'USD',
+    description: 'Spot Silver with industrial and monetary demand.',
+  },
+  {
+    id: 's_wtiusd',
+    symbol: 'WTIUSD',
+    name: 'WTI Crude Oil / US Dollar',
+    category: 'COMMODITIES',
+    digits: 2,
+    contractSize: 1000,
+    minVolume: 0.01,
+    maxVolume: 50.0,
+    volumeStep: 0.01,
+    defaultSpreadPoints: 4.0,
+    baseCurrency: 'WTI',
+    quoteCurrency: 'USD',
+    description: 'West Texas Intermediate Light Sweet Crude Oil benchmark.',
   },
 ];
 
-function generateExtendedSymbolList(): SymbolConfig[] {
-  const list = [...INITIAL_SYMBOLS];
-  const fxBases = ['NZD', 'EUR', 'GBP', 'AUD', 'CAD', 'CHF', 'JPY', 'SEK', 'NOK', 'SGD'];
-  const fxQuotes = ['USD', 'EUR', 'GBP', 'JPY', 'CHF'];
-
-  for (const b of fxBases) {
-    for (const q of fxQuotes) {
-      if (b === q) continue;
-      const pair = `${b}${q}`;
-      if (list.some((s) => s.symbol === pair)) continue;
-
-      list.push({
-        id: `s_${pair.toLowerCase()}`,
-        symbol: pair,
-        name: `${b} / ${q}`,
-        category: 'FOREX',
-        digits: q === 'JPY' ? 3 : 5,
-        contractSize: 100000,
-        minVolume: 0.01,
-        maxVolume: 50.0,
-        volumeStep: 0.01,
-        defaultSpreadPoints: q === 'JPY' ? 2.5 : 2.0,
-        baseCurrency: b,
-        quoteCurrency: q,
-        description: `Cross pair ${pair}`,
-      });
-
-      if (list.length >= 50) return list;
-    }
-  }
-
-  const cryptoExtras = ['SOLUSD', 'XRPUSD', 'ADAUSD', 'AVAXUSD', 'LINKUSD', 'DOTUSD', 'DOGEUSD'];
-  for (const c of cryptoExtras) {
-    if (list.length >= 50) break;
-    list.push({
-      id: `s_${c.toLowerCase()}`,
-      symbol: c,
-      name: `${c} Perpetual`,
-      category: 'CRYPTO',
-      digits: 2,
-      contractSize: 10,
-      minVolume: 0.1,
-      maxVolume: 100.0,
-      volumeStep: 0.1,
-      defaultSpreadPoints: 15.0,
-      baseCurrency: c.substring(0, 3),
-      quoteCurrency: 'USD',
-      description: 'High volatility crypto asset',
-    });
-  }
-
-  return list;
-}
-
-export const ALL_SYMBOLS = generateExtendedSymbolList();
+export const ALL_SYMBOLS = [...INITIAL_SYMBOLS];
 
 const BASE_PRICES: Record<string, { price: number; step: number }> = {
   EURUSD: { price: 1.08450, step: 0.00008 },
   GBPUSD: { price: 1.28820, step: 0.00012 },
   USDJPY: { price: 152.450, step: 0.025 },
-  XAUUSD: { price: 2735.50, step: 0.45 },
-  BTCUSD: { price: 68420.00, step: 18.50 },
+  USDCHF: { price: 0.86430, step: 0.00008 },
   AUDUSD: { price: 0.65820, step: 0.00009 },
   USDCAD: { price: 1.38540, step: 0.00010 },
-  USDCHF: { price: 0.86430, step: 0.00008 },
+  NZDUSD: { price: 0.59820, step: 0.00009 },
+  USDCNH: { price: 7.1245, step: 0.0008 },
+  EURJPY: { price: 165.350, step: 0.030 },
+  GBPJPY: { price: 196.420, step: 0.035 },
+  BTCUSD: { price: 68420.00, step: 18.50 },
   ETHUSD: { price: 2540.20, step: 1.20 },
-  US500:  { price: 5824.50, step: 0.85 },
+  BNBUSD: { price: 585.50, step: 0.45 },
+  SOLUSD: { price: 175.40, step: 0.25 },
+  XRPUSD: { price: 0.5420, step: 0.0008 },
+  XAUUSD: { price: 2735.50, step: 0.45 },
+  XAGUSD: { price: 32.450, step: 0.015 },
+  WTIUSD: { price: 71.80, step: 0.08 },
 };
 
 export type { QuoteBatchListener };
@@ -245,7 +329,7 @@ export class MarketEngine implements IMarketDataProvider {
   private ticksGeneratedCount: number = 0;
   private lastTickTimestamp: number = Date.now();
 
-  constructor(initialSymbolCount: number = 10) {
+  constructor(initialSymbolCount: number = 18) {
     for (const sym of ALL_SYMBOLS) {
       this.symbolsMap.set(sym.symbol, sym);
     }
@@ -359,8 +443,6 @@ export class MarketEngine implements IMarketDataProvider {
     const updatedBatch: Record<string, Quote> = {};
 
     for (const sym of this.activeSymbols) {
-      if (Math.random() < 0.25 && this.activeSymbols.length > 10) continue;
-
       const current = this.currentQuotes.get(sym.symbol);
       if (!current) continue;
 

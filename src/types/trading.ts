@@ -6,7 +6,7 @@
  * Pure TypeScript interfaces independent of React UI.
  */
 
-export type AssetCategory = 'FOREX' | 'CRYPTO' | 'METALS' | 'INDICES';
+export type AssetCategory = 'FOREX' | 'CRYPTO' | 'METALS' | 'COMMODITIES' | 'INDICES';
 
 export interface SymbolConfig {
   id: string;

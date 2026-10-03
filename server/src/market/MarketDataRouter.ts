@@ -170,7 +170,7 @@ export class MarketDataRouter implements IMarketDataProvider {
   }
 
   public getActiveSymbols(): SymbolConfig[] {
-    return ALL_SYMBOLS.slice(0, 10);
+    return ALL_SYMBOLS;
   }
 
   public getAllSymbols(): SymbolConfig[] {

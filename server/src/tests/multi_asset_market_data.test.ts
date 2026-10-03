@@ -60,12 +60,12 @@ async function runMultiAssetMarketDataTests() {
     const usdjpy = registry.getSymbol('USDJPY');
     assert(usdjpy !== undefined && usdjpy.digits === 3 && usdjpy.tickSize === 0.001, 'M4-03', 'USDJPY configured with 3 digits and 0.001 tick size');
 
-    // Metals precision
+    // Metals / Commodities precision
     const xauusd = registry.getSymbol('XAUUSD');
-    assert(xauusd !== undefined && xauusd.category === 'METALS' && xauusd.digits === 2 && xauusd.contractSize === 100, 'M4-04', 'XAUUSD (Gold) configured with 2 digits and 100 oz contract size');
+    assert(xauusd !== undefined && (xauusd.category === 'COMMODITIES' || xauusd.category === 'METALS') && xauusd.digits === 2 && xauusd.contractSize === 100, 'M4-04', 'XAUUSD (Gold) configured with 2 digits and 100 oz contract size');
 
     const xagusd = registry.getSymbol('XAGUSD');
-    assert(xagusd !== undefined && xagusd.category === 'METALS' && xagusd.digits === 3 && xagusd.contractSize === 5000, 'M4-05', 'XAGUSD (Silver) configured with 3 digits and 5,000 oz contract size');
+    assert(xagusd !== undefined && (xagusd.category === 'COMMODITIES' || xagusd.category === 'METALS') && xagusd.digits === 3 && xagusd.contractSize === 5000, 'M4-05', 'XAGUSD (Silver) configured with 3 digits and 5,000 oz contract size');
 
     // Crypto precision
     const btcusd = registry.getSymbol('BTCUSD');
@@ -74,9 +74,9 @@ async function runMultiAssetMarketDataTests() {
     const ethusd = registry.getSymbol('ETHUSD');
     assert(ethusd !== undefined && ethusd.category === 'CRYPTO' && ethusd.digits === 2 && ethusd.contractSize === 1, 'M4-07', 'ETHUSD configured with 2 digits and 1.0 ETH contract size');
 
-    // Index precision
-    const us500 = registry.getSymbol('US500');
-    assert(us500 !== undefined && us500.category === 'INDICES' && us500.digits === 2 && us500.contractSize === 10, 'M4-08', 'US500 configured with 2 digits and 10 contract size');
+    // Commodities Oil precision
+    const wtiusd = registry.getSymbol('WTIUSD');
+    assert(wtiusd !== undefined && wtiusd.category === 'COMMODITIES' && wtiusd.digits === 2 && wtiusd.contractSize === 1000, 'M4-08', 'WTIUSD configured with 2 digits and 1000 bbl contract size');
 
     // Price rounding & formatting
     assert(registry.roundPrice('EURUSD', 1.0845678) === 1.08457, 'M4-09', 'Rounds EURUSD to exactly 5 decimals');
@@ -352,26 +352,27 @@ async function runMultiAssetMarketDataTests() {
     assert(btcPnL === 250.00, 'M4-45', `BTCUSD 0.5 lot SHORT on $500 drop yields exactly +$250.00 P&L (got ${btcPnL})`);
 
     // C) Index (US500): 1 lot = 10 index units. 1.0 lot BUY @ 5800, Bid rises to 5810 -> P&L = 10 * 10 = $100.00
-    const us500Cfg = registry.getSymbol('US500')!;
-    const us500Quote: Quote = {
-      symbol: 'US500',
-      bid: 5810.00,
-      ask: 5810.50,
-      mid: 5810.25,
-      spread: 0.50,
-      high24h: 5850.00,
-      low24h: 5750.00,
+    // Commodities (WTIUSD) PnL
+    const wtiusdCfg = registry.getSymbol('WTIUSD')!;
+    const wtiusdQuote: Quote = {
+      symbol: 'WTIUSD',
+      bid: 71.50,
+      ask: 71.54,
+      mid: 71.52,
+      spread: 0.04,
+      high24h: 73.00,
+      low24h: 70.00,
       change24h: 0,
       change24hPct: 0,
       timestamp: Date.now(),
     };
 
-    const us500PnL = RiskEngine.calculatePositionPnL(
-      { side: 'BUY', volume: 1.0, openPrice: 5800.00 },
-      us500Quote,
-      us500Cfg.contractSize
+    const wtiusdPnL = RiskEngine.calculatePositionPnL(
+      { side: 'BUY', volume: 1.0, openPrice: 70.50 },
+      wtiusdQuote,
+      wtiusdCfg.contractSize
     );
-    assert(us500PnL === 100.00, 'M4-46', `US500 1.0 lot +10.0 index points yields exactly +$100.00 P&L (got ${us500PnL})`);
+    assert(wtiusdPnL === 1000.00, 'M4-46', `WTIUSD 1.0 lot +$1.00 move yields exactly +$1000.00 P&L (got ${wtiusdPnL})`);
   }
 
   // -------------------------------------------------------------------------
@@ -396,10 +397,10 @@ async function runMultiAssetMarketDataTests() {
     const mCrypto = RiskEngine.calculateRequiredMargin(0.1, 68000.00, btcCfg, leverage);
     assert(mCrypto === 68.00, 'M4-49', `Crypto 0.1 lot BTCUSD margin = $68.00 (got ${mCrypto})`);
 
-    // Indices (US500): 1.0 lot = 10 units @ 5800 = $58,000 notional / 100 = $580.00
-    const us500Cfg = registry.getSymbol('US500')!;
-    const mIndex = RiskEngine.calculateRequiredMargin(1.0, 5800.00, us500Cfg, leverage);
-    assert(mIndex === 580.00, 'M4-50', `Index 1.0 lot US500 margin = $580.00 (got ${mIndex})`);
+    // Commodities (WTIUSD): 1.0 lot = 1000 bbl @ $70.00 = $70,000 notional / 100 = $700.00
+    const wtiusdCfg = registry.getSymbol('WTIUSD')!;
+    const mOil = RiskEngine.calculateRequiredMargin(1.0, 70.00, wtiusdCfg, leverage);
+    assert(mOil === 700.00, 'M4-50', `Commodities 1.0 lot WTIUSD margin = $700.00 (got ${mOil})`);
   }
 
   // -------------------------------------------------------------------------

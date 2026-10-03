@@ -60,18 +60,18 @@ export function createDefaultMarketProvider(): IMarketDataProvider {
     let twelveDataAdapter: TwelveDataMarketDataAdapter | undefined;
 
     if (tiingoToken) {
-      console.log('[TradingRuntime] Initializing Tiingo Market Data Adapter (6 FX Majors: EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD)...');
+      console.log('[TradingRuntime] Initializing Tiingo Market Data Adapter (10 FX: EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD, USDCNH, EURJPY, GBPJPY)...');
       tiingoAdapter = new TiingoMarketDataAdapter({
         apiToken: tiingoToken,
-        tickers: ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad'],
+        tickers: ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad', 'nzdusd', 'usdcnh', 'eurjpy', 'gbpjpy'],
       });
     }
 
     if (twelveDataKey) {
-      console.log('[TradingRuntime] Initializing Twelve Data Secondary Adapter (Metals & Crypto: BTCUSD, ETHUSD, XAUUSD, XAGUSD)...');
+      console.log('[TradingRuntime] Initializing Twelve Data Secondary Adapter (Metals, Crypto, Oil, FX fallback: BTCUSD, ETHUSD, BNBUSD, SOLUSD, XRPUSD, XAUUSD, XAGUSD, WTIUSD)...');
       twelveDataAdapter = new TwelveDataMarketDataAdapter({
         apiKey: twelveDataKey,
-        symbols: ['BTCUSD', 'ETHUSD', 'XAUUSD', 'XAGUSD'],
+        symbols: ['BTCUSD', 'ETHUSD', 'BNBUSD', 'SOLUSD', 'XRPUSD', 'XAUUSD', 'XAGUSD', 'WTIUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCNH', 'EURJPY', 'GBPJPY'],
       });
     }
 
@@ -95,7 +95,7 @@ export function createDefaultMarketProvider(): IMarketDataProvider {
     }
   }
 
-  return new MarketEngine(10);
+  return new MarketEngine(18);
 }
 
 export interface SessionInitResult {

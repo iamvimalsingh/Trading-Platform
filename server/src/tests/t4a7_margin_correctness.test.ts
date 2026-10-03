@@ -43,9 +43,9 @@ async function runMarginCorrectnessTests() {
   const xauusdCfg = symbolsMap['XAUUSD'];
   const btcusdCfg = symbolsMap['BTCUSD'];
   const ethusdCfg = symbolsMap['ETHUSD'];
-  const us500Cfg = symbolsMap['US500'];
+  const wtiusdCfg = symbolsMap['WTIUSD'];
   const usdjpyCfg = symbolsMap['USDJPY'];
-  const eurgbpCfg = symbolsMap['EURGBP'];
+  const eurjpyCfg = symbolsMap['EURJPY'];
 
   console.log('\n--- 1. EURUSD WORKED EXAMPLES (Price = 1.08500, Leverage = 100x) ---');
   {
@@ -109,12 +109,12 @@ async function runMarginCorrectnessTests() {
     assert(eth001 === 0.25, `ETHUSD 0.01 lot margin = $0.25 (got ${eth001})`);
     assert(eth100 === 25.00, `ETHUSD 1.00 lot margin = $25.00 (got ${eth100})`);
 
-    // US500 (Contract size = 10, Price = 5824.50, Leverage = 100x)
-    const spPrice = 5824.50;
-    const sp001 = RiskEngine.calculateRequiredMargin(0.01, spPrice, us500Cfg, 100);
-    const sp100 = RiskEngine.calculateRequiredMargin(1.00, spPrice, us500Cfg, 100);
-    assert(sp001 === 5.82, `US500 0.01 lot margin = $5.82 (got ${sp001})`);
-    assert(sp100 === 582.45, `US500 1.00 lot margin = $582.45 (got ${sp100})`);
+    // WTIUSD (Contract size = 1000, Price = 71.80, Leverage = 100x)
+    const wtiPrice = 71.80;
+    const wti001 = RiskEngine.calculateRequiredMargin(0.01, wtiPrice, wtiusdCfg, 100);
+    const wti100 = RiskEngine.calculateRequiredMargin(1.00, wtiPrice, wtiusdCfg, 100);
+    assert(wti001 === 7.18, `WTIUSD 0.01 lot margin = $7.18 (got ${wti001})`);
+    assert(wti100 === 718.00, `WTIUSD 1.00 lot margin = $718.00 (got ${wti100})`);
   }
 
   console.log('\n--- 4. CURRENCY CONVERSION ACCURACY ---');
@@ -126,25 +126,25 @@ async function runMarginCorrectnessTests() {
     assert(jpy001 === 10.00, `USDJPY 0.01 lot margin in USD = $10.00 (got ${jpy001})`);
     assert(jpy100 === 1000.00, `USDJPY 1.00 lot margin in USD = $1000.00 (got ${jpy100})`);
 
-    // EURGBP (Base = EUR, Quote = GBP, Contract size = 100,000, Price = 0.85000, GBPUSD = 1.28000)
+    // EURJPY (Base = EUR, Quote = JPY, Contract size = 100,000, EURUSD = 1.08500)
     const quotes: Record<string, Quote> = {
-      GBPUSD: {
-        symbol: 'GBPUSD',
-        bid: 1.28000,
-        ask: 1.28020,
-        mid: 1.28010,
+      EURUSD: {
+        symbol: 'EURUSD',
+        bid: 1.08500,
+        ask: 1.08520,
+        mid: 1.08510,
         spread: 2.0,
-        high24h: 1.29,
-        low24h: 1.27,
+        high24h: 1.09,
+        low24h: 1.07,
         change24h: 0,
         change24hPct: 0,
         timestamp: Date.now(),
         tickDirection: 'FLAT',
       },
     };
-    const eurgbp100 = RiskEngine.calculateRequiredMargin(1.00, 0.85000, eurgbpCfg, 100, 'USD', quotes);
-    // Notional GBP = 85,000 * 1.28010 = $108,808.50 -> / 100 = $1088.09
-    assert(eurgbp100 > 1080 && eurgbp100 < 1090, `EURGBP 1.00 lot cross margin converted to USD = $${eurgbp100}`);
+    const eurjpy100 = RiskEngine.calculateRequiredMargin(1.00, 165.50, eurjpyCfg, 100, 'USD', quotes);
+    // Notional EUR = 100,000 * 1.08510 = $108,510 -> / 100 = $1085.10
+    assert(eurjpy100 > 1080 && eurjpy100 < 1090, `EURJPY 1.00 lot cross margin converted to USD = $${eurjpy100}`);
   }
 
   console.log('\n--- 5. MISSING CONFIG & INVALID INPUT DEFENSIVE SAFETY ---');

@@ -45,7 +45,7 @@ export interface TradingState {
   closedTrades: Position[];
 
   // Performance Spike & Benchmark State
-  activeSymbolCount: 10 | 25 | 50;
+  activeSymbolCount: number;
   ticksReceivedCount: number;
   lastTickTime: number;
   fps: number;
@@ -62,7 +62,7 @@ export interface TradingState {
   setSocketStatus: (status: SocketStatus) => void;
   initSessionFromSocket: (data: SessionReadyPayload) => void;
   setSelectedSymbol: (symbol: string) => void;
-  setActiveSymbolCount: (count: 10 | 25 | 50) => void;
+  setActiveSymbolCount: (count: number) => void;
   updateQuotesBatch: (batch: Record<string, Quote>) => void;
   setAccountState: (account: TradingAccount) => void;
   updatePosition: (position: Position) => void;
@@ -132,7 +132,7 @@ export const useTradingStore = create<TradingState>((set, get) => {
     executions: [],
     closedTrades: [],
 
-    activeSymbolCount: 10,
+    activeSymbolCount: 18,
     ticksReceivedCount: 0,
     lastTickTime: Date.now(),
     fps: 60,
@@ -155,7 +155,7 @@ export const useTradingStore = create<TradingState>((set, get) => {
       set({
         account: data.account,
         symbols: symbolsMap,
-        activeSymbolList: data.symbols.slice(0, get().activeSymbolCount),
+        activeSymbolList: data.symbols,
         positions: data.positions.filter((p) => p.status === 'OPEN'),
         closedTrades: data.positions.filter((p) => p.status === 'CLOSED'),
         orders: data.orders,
@@ -170,7 +170,7 @@ export const useTradingStore = create<TradingState>((set, get) => {
       tradingSocket.subscribeSymbols([symbol]);
     },
 
-    setActiveSymbolCount: (count: 10 | 25 | 50) => {
+    setActiveSymbolCount: (count: number) => {
       const targetSymbols = ALL_SYMBOLS.slice(0, count);
       set({
         activeSymbolCount: count,

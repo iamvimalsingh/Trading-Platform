@@ -34,12 +34,12 @@ async function runSymbolVisibilityTests() {
   for (const s of ALL_SYMBOLS) {
     symbolsMap[s.symbol] = s;
   }
-  const top10 = ALL_SYMBOLS.slice(0, 10);
+  const top18 = ALL_SYMBOLS.slice(0, 18);
 
   useTradingStore.setState({
     symbols: symbolsMap,
-    activeSymbolList: top10,
-    activeSymbolCount: 10,
+    activeSymbolList: top18,
+    activeSymbolCount: 18,
     selectedSymbol: 'EURUSD',
     quotes: {}, // Start with empty quote dictionary
   });
@@ -47,19 +47,19 @@ async function runSymbolVisibilityTests() {
   console.log('\n--- TEST A: Symbol Catalog Remains Visible Without Live Quotes ---');
   {
     const state = useTradingStore.getState();
-    assert(state.activeSymbolList.length === 10, `Active symbol list has 10 symbols (got ${state.activeSymbolList.length})`);
+    assert(state.activeSymbolList.length === 18, `Active symbol list has 18 symbols (got ${state.activeSymbolList.length})`);
     
-    // Check all 10 symbols are present in active list
+    // Check all 18 symbols are present in active list
     const symbolNames = state.activeSymbolList.map((s) => s.symbol);
-    const expected = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'AUDUSD', 'USDCAD', 'USDCHF', 'ETHUSD', 'US500'];
+    const expected = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCNH', 'EURJPY', 'GBPJPY', 'BTCUSD', 'ETHUSD', 'BNBUSD', 'SOLUSD', 'XRPUSD', 'XAUUSD', 'XAGUSD', 'WTIUSD'];
     const allPresent = expected.every((sym) => symbolNames.includes(sym));
-    assert(allPresent, 'All 10 configured symbols exist in active list');
+    assert(allPresent, 'All 18 configured symbols exist in active list');
 
     // Quotes are empty, but symbol metadata is complete
     assert(Object.keys(state.quotes).length === 0, 'Quotes map is initially empty');
     assert(state.symbols['EURUSD'] !== undefined, 'EURUSD metadata is present');
     assert(state.symbols['BTCUSD'] !== undefined, 'BTCUSD metadata is present');
-    assert(state.symbols['US500'] !== undefined, 'US500 metadata is present');
+    assert(state.symbols['WTIUSD'] !== undefined, 'WTIUSD metadata is present');
   }
 
   console.log('\n--- TEST B: Symbol Transitions to Live When First Quote Arrives ---');
@@ -84,7 +84,7 @@ async function runSymbolVisibilityTests() {
     assert(state.quotes['EURUSD'] !== undefined, 'EURUSD quote is now present in store');
     assert(state.quotes['EURUSD'].bid === 1.08520, `EURUSD bid is 1.08520 (got ${state.quotes['EURUSD'].bid})`);
     assert(state.quotes['GBPUSD'] === undefined, 'GBPUSD remains cleanly undefined without synthetic fabrication');
-    assert(state.activeSymbolList.length === 10, 'Active symbol list count remains 10');
+    assert(state.activeSymbolList.length === 18, 'Active symbol list count remains 18');
   }
 
   console.log('\n--- TEST C: Symbol Does Not Disappear When Quote Becomes Stale ---');
@@ -189,10 +189,10 @@ async function runSymbolVisibilityTests() {
     const activeSubscribedCount = state.activeSymbolList.length;
     const liveQuotesCount = Object.keys(state.quotes).length;
 
-    assert(availableSymbolsCount === 50, `Catalog has 50 available symbols (got ${availableSymbolsCount})`);
-    assert(activeSubscribedCount === 10, `Active subscribed list has 10 symbols (got ${activeSubscribedCount})`);
+    assert(availableSymbolsCount === 18, `Catalog has 18 available symbols (got ${availableSymbolsCount})`);
+    assert(activeSubscribedCount === 18, `Active subscribed list has 18 symbols (got ${activeSubscribedCount})`);
     assert(liveQuotesCount === 2, `Live quotes dictionary contains exactly 2 quoted symbols (got ${liveQuotesCount})`);
-    assert(state.quotes['US500'] === undefined, 'Unquoted US500 is not fabricated as real');
+    assert(state.quotes['WTIUSD'] === undefined, 'Unquoted WTIUSD is not fabricated as real');
   }
 
   console.log('\n=============================================================');

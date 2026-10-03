@@ -131,6 +131,13 @@ export function setLaunchToken(token: string): void {
   } catch {
     // Storage access denied in sandboxed/cross-origin iframe
   }
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('trading_terminal_launch_token', trimmed);
+    }
+  } catch {
+    // Storage access denied in sandboxed/cross-origin iframe
+  }
   const claims = parseLaunchTokenClaims(trimmed);
   if (claims) {
     for (const listener of tokenListeners) {
@@ -289,14 +296,6 @@ export function extractLaunchToken(): string | null {
       const val = params.get(key)?.trim();
       if (val && val.split('.').length === 3) {
         setLaunchToken(val);
-        try {
-          params.delete(key);
-          const newSearch = params.toString();
-          const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
-          window.history.replaceState({}, document.title, newUrl);
-        } catch {
-          // ignore replaceState restrictions
-        }
         return val;
       }
     }
@@ -326,6 +325,19 @@ export function extractLaunchToken(): string | null {
   try {
     if (typeof sessionStorage !== 'undefined') {
       const saved = sessionStorage.getItem('trading_terminal_launch_token')?.trim();
+      if (saved && saved.split('.').length === 3) {
+        inMemoryLaunchToken = saved;
+        return inMemoryLaunchToken;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 4. Check localStorage safely
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem('trading_terminal_launch_token')?.trim();
       if (saved && saved.split('.').length === 3) {
         inMemoryLaunchToken = saved;
         return inMemoryLaunchToken;

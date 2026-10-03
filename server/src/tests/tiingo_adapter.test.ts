@@ -486,13 +486,13 @@ async function runTiingoAdapterTests() {
   (majorsProvider as any).sendSubscription();
 
   const subscribedTickers: string[] = majorsPayload?.eventData?.tickers || [];
-  const expectedMajors = ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad'];
+  const expectedMajors = ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad', 'nzdusd', 'usdcnh', 'eurjpy', 'gbpjpy'];
   const allSubscribed = expectedMajors.every((t) => subscribedTickers.includes(t));
 
   assert(
-    allSubscribed && subscribedTickers.length >= 5,
+    allSubscribed && subscribedTickers.length >= 10,
     25,
-    'Subscribes to all real FX majors: eurusd, gbpusd, usdjpy, usdchf, audusd, usdcad',
+    'Subscribes to all 10 real FX instruments: eurusd, gbpusd, usdjpy, usdchf, audusd, usdcad, nzdusd, usdcnh, eurjpy, gbpjpy',
     `Subscribed: ${subscribedTickers.join(', ')}`
   );
 

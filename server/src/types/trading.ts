@@ -6,7 +6,7 @@
  * Pure TypeScript interfaces for server-authoritative trading runtime.
  */
 
-export type AssetCategory = 'FOREX' | 'CRYPTO' | 'METALS' | 'INDICES';
+export type AssetCategory = 'FOREX' | 'CRYPTO' | 'METALS' | 'COMMODITIES' | 'INDICES';
 
 export interface SymbolConfig {
   id: string;

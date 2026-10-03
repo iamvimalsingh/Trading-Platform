@@ -236,7 +236,7 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
     this.tickers =
       options.tickers && options.tickers.length > 0
         ? options.tickers.map((t) => t.toLowerCase())
-        : ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad'];
+        : ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad', 'nzdusd', 'usdcnh', 'eurjpy', 'gbpjpy'];
     this.staleThresholdMs = options.staleThresholdMs || 15000;
     this.initialReconnectDelayMs = options.initialReconnectDelayMs || 1000;
     this.maxReconnectDelayMs = options.maxReconnectDelayMs || 30000;
