@@ -57,24 +57,31 @@ export class PostgresSymbolRepository {
   }
 
   public async getSymbolOverrides(tenantId: string): Promise<Record<string, Partial<InstrumentDefinition>>> {
-    const res = await this.db.query(
-      `SELECT * FROM trading_symbol_configs WHERE tenant_id = $1;`,
-      [tenantId]
-    );
+    try {
+      const res = await this.db.query(
+        `SELECT * FROM trading_symbol_configs WHERE tenant_id = $1;`,
+        [tenantId]
+      );
 
-    const result: Record<string, Partial<InstrumentDefinition>> = {};
-    for (const r of res.rows) {
-      result[r.symbol] = {
-        enabled: Boolean(r.is_enabled),
-        tradingStatus: r.trading_status,
-        minVolume: r.min_volume ? Number(r.min_volume) : undefined,
-        maxVolume: r.max_volume ? Number(r.max_volume) : undefined,
-        volumeStep: r.volume_step ? Number(r.volume_step) : undefined,
-        digits: r.digits !== null ? Number(r.digits) : undefined,
-        tickSize: r.tick_size ? Number(r.tick_size) : undefined,
-        contractSize: r.contract_size ? Number(r.contract_size) : undefined,
-      };
+      const result: Record<string, Partial<InstrumentDefinition>> = {};
+      for (const r of res.rows) {
+        result[r.symbol] = {
+          enabled: Boolean(r.is_enabled),
+          tradingStatus: r.trading_status,
+          minVolume: r.min_volume ? Number(r.min_volume) : undefined,
+          maxVolume: r.max_volume ? Number(r.max_volume) : undefined,
+          volumeStep: r.volume_step ? Number(r.volume_step) : undefined,
+          digits: r.digits !== null ? Number(r.digits) : undefined,
+          tickSize: r.tick_size ? Number(r.tick_size) : undefined,
+          contractSize: r.contract_size ? Number(r.contract_size) : undefined,
+        };
+      }
+      return result;
+    } catch (err: any) {
+      if (err?.message?.includes('does not exist')) {
+        return {};
+      }
+      throw err;
     }
-    return result;
   }
 }

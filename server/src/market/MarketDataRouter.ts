@@ -25,7 +25,7 @@ import {
 import { IMarketDataAdapter } from './IMarketDataAdapter';
 import { NormalizedInternalQuote } from '../types/marketData';
 import { getAllSymbolMappings, getSymbolMapping, SymbolMappingDefinition } from './SymbolMapping';
-import { ALL_SYMBOLS } from './MarketEngine';
+import { ALL_SYMBOLS, BASE_PRICES } from './MarketEngine';
 import { MarketEngine } from './MarketEngine';
 
 export interface CategoryStaleThresholds {
@@ -42,6 +42,34 @@ export interface MarketDataRouterOptions {
   isRealMarketData?: boolean;
   staleThresholdMs?: number;
   categoryStaleThresholds?: CategoryStaleThresholds;
+}
+
+export function isFxMarketClosed(timestamp: number): boolean {
+  const d = new Date(timestamp);
+  const day = d.getUTCDay(); // 0 = Sun, 5 = Fri, 6 = Sat
+  const hour = d.getUTCHours();
+  if (day === 6) return true; // Saturday all day
+  if (day === 0 && hour < 21) return true; // Sunday before 21:00 UTC
+  if (day === 5 && hour >= 21) return true; // Friday from 21:00 UTC onwards
+  return false;
+}
+
+export function isCommodityMarketClosed(timestamp: number): boolean {
+  const d = new Date(timestamp);
+  const day = d.getUTCDay(); // 0 = Sun, 5 = Fri, 6 = Sat
+  const hour = d.getUTCHours();
+  if (day === 6) return true; // Saturday all day
+  if (day === 0 && hour < 22) return true; // Sunday before 22:00 UTC
+  if (day === 5 && hour >= 21) return true; // Friday from 21:00 UTC onwards
+  return false;
+}
+
+export function isMarketSessionClosed(category: string, timestamp: number): boolean {
+  const cat = category.toUpperCase();
+  if (cat === 'FOREX') return isFxMarketClosed(timestamp);
+  if (cat === 'COMMODITIES' || cat === 'METALS') return isCommodityMarketClosed(timestamp);
+  if (cat === 'CRYPTO') return false; // 24/7/365 continuous trading
+  return false;
 }
 
 export class MarketDataRouter implements IMarketDataProvider {
@@ -172,14 +200,125 @@ export class MarketDataRouter implements IMarketDataProvider {
     return () => this.quoteListeners.delete(listener);
   }
 
+  public getEnrichedQuote(symbol: string, now = Date.now()): Quote | undefined {
+    const canonical = symbol.toUpperCase();
+    const rawQuote = this.quotes.get(canonical);
+    const symCfg = this.getSymbolConfig(canonical);
+    const category = symCfg?.category?.toUpperCase() || 'FOREX';
+    const mapping = getSymbolMapping(canonical);
+
+    // 1. Check provider connection / availability
+    const isConnected = this.isRunning;
+    if (!isConnected) {
+      if (rawQuote) {
+        return { ...rawQuote, marketStatus: 'UNAVAILABLE' };
+      }
+      return {
+        symbol: canonical,
+        bid: 0,
+        ask: 0,
+        mid: 0,
+        spread: 0,
+        high24h: 0,
+        low24h: 0,
+        change24h: 0,
+        change24hPct: 0,
+        timestamp: now,
+        receivedTimestamp: now,
+        tickDirection: 'FLAT',
+        marketStatus: 'UNAVAILABLE',
+        source: 'system',
+      };
+    }
+
+    // 2. Check if market session is legitimately closed (weekend schedule for FOREX & COMMODITIES)
+    const closed = isMarketSessionClosed(category, now);
+    if (closed) {
+      if (rawQuote && rawQuote.bid > 0 && rawQuote.ask > 0) {
+        return { ...rawQuote, marketStatus: 'CLOSED' };
+      }
+      const base = BASE_PRICES[canonical];
+      const digits = symCfg?.digits ?? 2;
+      const spreadPoints = mapping?.defaultSpreadPoints ?? 4.0;
+      const halfSpread = (spreadPoints * Math.pow(10, -digits)) / 2;
+      const mid = base ? base.price : (rawQuote?.mid || 0);
+      const bid = mid > 0 ? Number((mid - halfSpread).toFixed(digits)) : 0;
+      const ask = mid > 0 ? Number((mid + halfSpread).toFixed(digits)) : 0;
+      const spread = Number((ask - bid).toFixed(digits));
+
+      return {
+        symbol: canonical,
+        bid,
+        ask,
+        mid,
+        spread,
+        high24h: ask,
+        low24h: bid,
+        change24h: 0,
+        change24hPct: 0,
+        timestamp: now,
+        receivedTimestamp: now,
+        tickDirection: 'FLAT',
+        marketStatus: 'CLOSED',
+        source: rawQuote?.source || 'system',
+      };
+    }
+
+    // 3. Market is open, but no quote received yet
+    if (!rawQuote || rawQuote.bid <= 0 || rawQuote.ask <= 0) {
+      const isUnavailable = mapping && !mapping.isAvailableOnStandardTier;
+      const status = isUnavailable ? 'UNAVAILABLE' : 'WAITING_FOR_PROVIDER';
+      const base = BASE_PRICES[canonical];
+      const digits = symCfg?.digits ?? 2;
+      const spreadPoints = mapping?.defaultSpreadPoints ?? 4.0;
+      const halfSpread = (spreadPoints * Math.pow(10, -digits)) / 2;
+      const mid = base ? base.price : 0;
+      const bid = mid > 0 ? Number((mid - halfSpread).toFixed(digits)) : 0;
+      const ask = mid > 0 ? Number((mid + halfSpread).toFixed(digits)) : 0;
+      const spread = Number((ask - bid).toFixed(digits));
+
+      return {
+        symbol: canonical,
+        bid,
+        ask,
+        mid,
+        spread,
+        high24h: ask,
+        low24h: bid,
+        change24h: 0,
+        change24hPct: 0,
+        timestamp: now,
+        receivedTimestamp: now,
+        tickDirection: 'FLAT',
+        marketStatus: status,
+        source: 'system',
+      };
+    }
+
+    // 4. Market is open and quote exists: check freshness
+    const threshold = this.getStaleThresholdForSymbol(canonical);
+    const quoteTime = rawQuote.receivedTimestamp || rawQuote.timestamp;
+    const isStale = now - quoteTime > threshold;
+    const marketStatus = isStale ? 'STALE' : 'LIVE';
+
+    return {
+      ...rawQuote,
+      marketStatus,
+    };
+  }
+
   public getQuote(symbol: string): Quote | undefined {
-    return this.quotes.get(symbol.toUpperCase());
+    return this.getEnrichedQuote(symbol, Date.now());
   }
 
   public getAllQuotes(): Record<string, Quote> {
     const res: Record<string, Quote> = {};
-    for (const [sym, q] of this.quotes.entries()) {
-      res[sym] = q;
+    const now = Date.now();
+    for (const symCfg of ALL_SYMBOLS) {
+      const q = this.getEnrichedQuote(symCfg.symbol, now);
+      if (q) {
+        res[symCfg.symbol] = q;
+      }
     }
     return res;
   }
@@ -237,7 +376,8 @@ export class MarketDataRouter implements IMarketDataProvider {
     if (!q) return true;
     if (q.marketStatus === 'STALE') return true;
     const threshold = this.getStaleThresholdForSymbol(symbol);
-    return Date.now() - q.timestamp > threshold;
+    const quoteTime = q.receivedTimestamp || q.timestamp;
+    return Date.now() - quoteTime > threshold;
   }
 
   public generateTickBatch(): Record<string, Quote> {
@@ -253,14 +393,16 @@ export class MarketDataRouter implements IMarketDataProvider {
     for (const [sym, quote] of Object.entries(batch)) {
       const canonical = sym.toUpperCase();
       const mapping = getSymbolMapping(canonical);
+      const category = mapping?.category || 'FOREX';
+      const isClosed = isMarketSessionClosed(category, now);
 
-      // Precedence Rule 1: Tiingo is authoritative for symbols where it is primary (all FX majors)
-      if (!mapping || mapping.primaryProvider === 'tiingo_fx') {
+      if (!mapping || mapping.primaryProvider === 'tiingo_fx' || mapping.secondaryProvider === 'tiingo_fx') {
         const enrichedQuote: Quote = {
           ...quote,
           symbol: canonical,
-          marketStatus: 'LIVE',
+          marketStatus: isClosed ? 'CLOSED' : 'LIVE',
           source: 'tiingo_fx',
+          receivedTimestamp: now,
         };
         this.quotes.set(canonical, enrichedQuote);
         routedBatch[canonical] = enrichedQuote;
@@ -277,9 +419,11 @@ export class MarketDataRouter implements IMarketDataProvider {
   private handleTiingoQuote(raw: NormalizedInternalQuote): void {
     const canonical = raw.symbol.toUpperCase();
     const mapping = getSymbolMapping(canonical);
+    const category = mapping?.category || 'FOREX';
     const now = Date.now();
+    const isClosed = isMarketSessionClosed(category, now);
 
-    if (!mapping || mapping.primaryProvider === 'tiingo_fx') {
+    if (!mapping || mapping.primaryProvider === 'tiingo_fx' || mapping.secondaryProvider === 'tiingo_fx') {
       const quote: Quote = {
         symbol: canonical,
         bid: raw.bid,
@@ -287,12 +431,13 @@ export class MarketDataRouter implements IMarketDataProvider {
         mid: raw.mid,
         spread: raw.spread,
         timestamp: raw.timestamp,
+        receivedTimestamp: now,
         tickDirection: raw.tickDirection || 'FLAT',
         high24h: raw.high24h,
         low24h: raw.low24h,
         change24h: raw.change24h,
         change24hPct: raw.change24hPct,
-        marketStatus: raw.marketStatus || 'LIVE',
+        marketStatus: isClosed ? 'CLOSED' : (raw.marketStatus || 'LIVE'),
         source: 'tiingo_fx',
       };
       this.quotes.set(canonical, quote);
@@ -306,15 +451,15 @@ export class MarketDataRouter implements IMarketDataProvider {
   private handleTwelveDataQuote(raw: NormalizedInternalQuote): void {
     const canonical = raw.symbol.toUpperCase();
     const mapping = getSymbolMapping(canonical);
+    const category = mapping?.category || 'FOREX';
     const now = Date.now();
+    const isClosed = isMarketSessionClosed(category, now);
 
-    // Check precedence:
-    // A. Twelve Data is primary for Metals (XAUUSD, XAGUSD) and Crypto (BTCUSD, ETHUSD)
-    // B. Twelve Data acts as secondary for FX ONLY if Tiingo has not provided a live quote recently
     const isPrimaryTwelveData = mapping?.primaryProvider === 'twelve_data';
     const isSecondaryFallback = mapping?.secondaryProvider === 'twelve_data';
     const tiingoCurrentQuote = this.quotes.get(canonical);
-    const tiingoIsActive = tiingoCurrentQuote && tiingoCurrentQuote.source === 'tiingo_fx' && (now - tiingoCurrentQuote.timestamp < this.staleThresholdMs);
+    const staleLimit = this.getStaleThresholdForSymbol(canonical);
+    const tiingoIsActive = tiingoCurrentQuote && tiingoCurrentQuote.source === 'tiingo_fx' && (now - (tiingoCurrentQuote.receivedTimestamp || tiingoCurrentQuote.timestamp) < staleLimit);
 
     if (isPrimaryTwelveData || (isSecondaryFallback && !tiingoIsActive)) {
       const quote: Quote = {
@@ -324,12 +469,13 @@ export class MarketDataRouter implements IMarketDataProvider {
         mid: raw.mid,
         spread: raw.spread,
         timestamp: raw.timestamp,
+        receivedTimestamp: now,
         tickDirection: raw.tickDirection || 'FLAT',
         high24h: raw.high24h,
         low24h: raw.low24h,
         change24h: raw.change24h,
         change24hPct: raw.change24hPct,
-        marketStatus: raw.marketStatus || 'LIVE',
+        marketStatus: isClosed ? 'CLOSED' : (raw.marketStatus || 'LIVE'),
         source: 'twelve_data',
       };
 
@@ -345,7 +491,6 @@ export class MarketDataRouter implements IMarketDataProvider {
     const routedBatch: Record<string, Quote> = {};
     for (const [sym, q] of Object.entries(batch)) {
       const canonical = sym.toUpperCase();
-      // Only populate from simulator if no real provider has provided a quote
       if (!this.quotes.has(canonical)) {
         this.quotes.set(canonical, q);
         routedBatch[canonical] = q;
@@ -368,20 +513,23 @@ export class MarketDataRouter implements IMarketDataProvider {
 
   private checkStale(): void {
     const now = Date.now();
-    let hasStale = false;
-    const staleBatch: Record<string, Quote> = {};
+    const batchToDispatch: Record<string, Quote> = {};
 
-    for (const [sym, quote] of this.quotes.entries()) {
-      const threshold = this.getStaleThresholdForSymbol(sym);
-      if (quote.marketStatus === 'LIVE' && now - quote.timestamp > threshold) {
-        quote.marketStatus = 'STALE';
-        staleBatch[sym] = { ...quote };
-        hasStale = true;
+    for (const symCfg of ALL_SYMBOLS) {
+      const sym = symCfg.symbol;
+      const currentStored = this.quotes.get(sym);
+      const enriched = this.getEnrichedQuote(sym, now);
+      if (!enriched) continue;
+
+      const prevStatus = currentStored?.marketStatus;
+      if (prevStatus !== enriched.marketStatus) {
+        this.quotes.set(sym, enriched);
+        batchToDispatch[sym] = enriched;
       }
     }
 
-    if (hasStale) {
-      this.dispatch(staleBatch);
+    if (Object.keys(batchToDispatch).length > 0) {
+      this.dispatch(batchToDispatch);
     }
   }
 }

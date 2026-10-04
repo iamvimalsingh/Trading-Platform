@@ -20,6 +20,7 @@ import { WebSocket } from 'ws';
 import { IMarketDataAdapter, QuoteListener } from './IMarketDataAdapter';
 import { NormalizedInternalQuote, ProviderStatusInfo } from '../types/marketData';
 import { getCanonicalFromTwelveData, getSymbolMapping, SymbolMappingDefinition } from './SymbolMapping';
+import { isMarketSessionClosed } from './MarketDataRouter';
 import { InstrumentRegistry } from './InstrumentRegistry';
 
 export interface TwelveDataAdapterOptions {
@@ -86,7 +87,7 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     const initialSymbols = options?.symbols || ['BTCUSD', 'ETHUSD', 'BNBUSD', 'SOLUSD', 'XRPUSD', 'XAUUSD', 'XAGUSD', 'WTIUSD'];
     for (const sym of initialSymbols) {
       const mapping = getSymbolMapping(sym);
-      if (mapping && mapping.isAvailableOnStandardTier && mapping.twelveDataSymbol) {
+      if (mapping && mapping.twelveDataSymbol) {
         this.subscribedCanonicalSymbols.add(sym.toUpperCase());
       }
     }
@@ -160,7 +161,7 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     const toAdd: string[] = [];
     for (const sym of symbols) {
       const mapping = getSymbolMapping(sym);
-      if (mapping && mapping.isAvailableOnStandardTier && mapping.twelveDataSymbol) {
+      if (mapping && mapping.twelveDataSymbol) {
         if (!this.subscribedCanonicalSymbols.has(sym.toUpperCase())) {
           this.subscribedCanonicalSymbols.add(sym.toUpperCase());
           toAdd.push(mapping.twelveDataSymbol);
@@ -325,7 +326,17 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     if (!parsed || typeof parsed !== 'object') return;
 
     // Handle heartbeats & acknowledgements
-    if (parsed.event === 'heartbeat' || parsed.event === 'subscribe-status') {
+    if (parsed.event === 'heartbeat') {
+      return;
+    }
+
+    if (parsed.event === 'subscribe-status') {
+      console.log(`[TwelveDataMarketDataAdapter] Subscription status: ${parsed.status}, success: ${JSON.stringify(parsed.success)}, fails: ${JSON.stringify(parsed.fails)}`);
+      return;
+    }
+
+    if (parsed.event === 'error' || parsed.status === 'error') {
+      console.warn(`[TwelveDataMarketDataAdapter] Provider error: ${parsed.message || JSON.stringify(parsed)}`);
       return;
     }
 
@@ -505,7 +516,14 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
   private checkStale(): void {
     const now = Date.now();
     for (const [sym, quote] of this.quotes.entries()) {
-      if (quote.marketStatus === 'LIVE' && now - quote.timestamp > this.staleThresholdMs) {
+      const mapping = getSymbolMapping(sym);
+      const isClosed = isMarketSessionClosed(mapping?.category || 'FOREX', now);
+      if (isClosed) {
+        if (quote.marketStatus !== 'CLOSED') {
+          quote.marketStatus = 'CLOSED';
+          this.emitQuote({ ...quote });
+        }
+      } else if (quote.marketStatus === 'LIVE' && now - quote.timestamp > this.staleThresholdMs) {
         quote.marketStatus = 'STALE';
         this.emitQuote({ ...quote });
       }

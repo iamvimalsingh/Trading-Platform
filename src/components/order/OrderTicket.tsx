@@ -71,10 +71,11 @@ export const OrderTicket: React.FC = () => {
     );
   }, [volume, pricingForMargin, symbolCfg, account.leverage, account.currency]);
 
-  const isStale = Boolean(quote?.marketStatus === 'STALE' || (quote as any)?.isStale);
-  const isUnavailable = quote?.marketStatus === 'UNAVAILABLE';
-  const isWaiting = !quote || quote?.marketStatus === 'WAITING_FOR_PROVIDER';
-  const isLive = Boolean(quote && quote.marketStatus === 'LIVE' && !isStale && !isUnavailable);
+  const isClosed = quote?.marketStatus === 'CLOSED';
+  const isStale = !isClosed && Boolean(quote?.marketStatus === 'STALE' || (quote as any)?.isStale);
+  const isUnavailable = !isClosed && quote?.marketStatus === 'UNAVAILABLE';
+  const isWaiting = !isClosed && !isUnavailable && !isStale && (!quote || quote?.marketStatus === 'WAITING_FOR_PROVIDER');
+  const isLive = Boolean(quote && quote.marketStatus === 'LIVE' && !isStale && !isUnavailable && !isClosed);
   const isMarketExecutable = isLive;
 
   const hasEnoughMargin = requiredMargin <= account.freeMargin;
@@ -88,6 +89,10 @@ export const OrderTicket: React.FC = () => {
     }
 
     if (orderType === 'MARKET') {
+      if (isClosed) {
+        setLastNotification({ type: 'ERROR', message: 'Market Closed' });
+        return;
+      }
       if (!quote || isWaiting) {
         setLastNotification({ type: 'ERROR', message: `Awaiting live quote for ${selectedSymbol}…` });
         return;
@@ -252,7 +257,14 @@ export const OrderTicket: React.FC = () => {
         </div>
       )}
 
-      {/* Missing / Stale / Unavailable Market Quote Warnings */}
+      {/* Missing / Stale / Unavailable / Closed Market Quote Warnings */}
+      {isClosed && (
+        <div className="mb-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 font-sans font-medium">
+          <Clock className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="text-[11px] leading-tight">Market Closed</span>
+        </div>
+      )}
+
       {isStale && (
         <div className="mb-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 font-sans font-medium">
           <Clock className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -267,7 +279,7 @@ export const OrderTicket: React.FC = () => {
         </div>
       )}
 
-      {isWaiting && !isStale && !isUnavailable && (
+      {isWaiting && (
         <div className="mb-3 p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 text-blue-800 dark:text-blue-300 text-xs flex items-center gap-2 font-sans">
           <Clock className="w-4 h-4 shrink-0 text-blue-500" />
           <span className="text-[11px] leading-tight">Awaiting live quote for {selectedSymbol}…</span>
@@ -279,7 +291,7 @@ export const OrderTicket: React.FC = () => {
         <div className="flex items-center justify-between text-[11px] font-sans text-slate-500 dark:text-zinc-400 font-medium px-1">
           <span>SELL PRICE</span>
           <span className="font-mono text-[10px] text-slate-400 dark:text-zinc-500">
-            {isLive ? `Spread: ${quote!.spread}` : isStale ? 'STALE' : isUnavailable ? 'UNAVAILABLE' : ''}
+            {isLive ? `Spread: ${quote!.spread}` : isClosed ? 'CLOSED' : isStale ? 'STALE' : isUnavailable ? 'UNAVAILABLE' : ''}
           </span>
           <span>BUY PRICE</span>
         </div>

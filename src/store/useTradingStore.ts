@@ -162,6 +162,9 @@ export const useTradingStore = create<TradingState>((set, get) => {
         executions: data.executions || [],
         ledger: data.ledger,
       });
+
+      // Ensure all active platform symbols are subscribed on server
+      tradingSocket.subscribeSymbols(data.symbols.map((s) => s.symbol));
     },
 
     setSelectedSymbol: (symbol: string) => {

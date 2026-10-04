@@ -294,7 +294,7 @@ export const INITIAL_SYMBOLS: SymbolConfig[] = [
 
 export const ALL_SYMBOLS = [...INITIAL_SYMBOLS];
 
-const BASE_PRICES: Record<string, { price: number; step: number }> = {
+export const BASE_PRICES: Record<string, { price: number; step: number }> = {
   EURUSD: { price: 1.08450, step: 0.00008 },
   GBPUSD: { price: 1.28820, step: 0.00012 },
   USDJPY: { price: 152.450, step: 0.025 },

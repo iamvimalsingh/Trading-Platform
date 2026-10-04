@@ -51,7 +51,11 @@ export function createAppAndServer(): AppServerContext {
   }
 
   const adminService = new TradingAdminService(runtime, auditRepo, spreadRepo, symbolRepo, spreadPolicy);
-  adminService.init().catch((err) => console.warn('[TradingAdminService] Non-fatal startup hydration:', err));
+  runtime.persistence.init().then(() => {
+    return adminService.init();
+  }).catch((err) => {
+    console.warn('[TradingAdminService] Non-fatal startup hydration:', err);
+  });
 
   const httpServer = createServer(app);
   const wsServer = new TradingWebSocketServer(httpServer, runtime, '/ws');

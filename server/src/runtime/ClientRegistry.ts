@@ -81,7 +81,8 @@ export class ClientRegistry {
     const newlySubscribed: string[] = [];
     const MAX_SUBSCRIPTIONS = 100;
 
-    for (const sym of symbols) {
+    for (const rawSym of symbols) {
+      const sym = rawSym.toUpperCase();
       if (session.subscribedSymbols.size >= MAX_SUBSCRIPTIONS) {
         break; // Hardened against runaway subscriptions
       }
@@ -105,7 +106,8 @@ export class ClientRegistry {
     if (!session) return [];
 
     const unsubscribed: string[] = [];
-    for (const sym of symbols) {
+    for (const rawSym of symbols) {
+      const sym = rawSym.toUpperCase();
       if (session.subscribedSymbols.has(sym)) {
         session.subscribedSymbols.delete(sym);
         unsubscribed.push(sym);
@@ -123,7 +125,8 @@ export class ClientRegistry {
   }
 
   public getClientsForSymbol(symbol: string): ClientSession[] {
-    const connectionIds = this.symbolSubscribers.get(symbol);
+    const canonical = symbol.toUpperCase();
+    const connectionIds = this.symbolSubscribers.get(canonical) || this.symbolSubscribers.get(symbol);
     if (!connectionIds || connectionIds.size === 0) return [];
 
     const clients: ClientSession[] = [];

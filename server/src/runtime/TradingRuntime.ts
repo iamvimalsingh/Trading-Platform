@@ -60,10 +60,11 @@ export function createDefaultMarketProvider(): IMarketDataProvider {
     let twelveDataAdapter: TwelveDataMarketDataAdapter | undefined;
 
     if (tiingoToken) {
-      console.log('[TradingRuntime] Initializing Tiingo Market Data Adapter (10 FX: EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD, USDCNH, EURJPY, GBPJPY)...');
+      console.log('[TradingRuntime] Initializing Tiingo Market Data Adapter (10 FX + 2 Metals: EURUSD..GBPJPY, XAUUSD, XAGUSD, and 5 Crypto: BTCUSD, ETHUSD, BNBUSD, SOLUSD, XRPUSD)...');
       tiingoAdapter = new TiingoMarketDataAdapter({
         apiToken: tiingoToken,
-        tickers: ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad', 'nzdusd', 'usdcnh', 'eurjpy', 'gbpjpy'],
+        tickers: ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad', 'nzdusd', 'usdcnh', 'eurjpy', 'gbpjpy', 'xauusd', 'xagusd'],
+        cryptoTickers: ['btcusd', 'ethusd', 'bnbusd', 'solusd', 'xrpusd'],
       });
     }
 

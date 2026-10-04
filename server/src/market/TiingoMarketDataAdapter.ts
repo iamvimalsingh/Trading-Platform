@@ -13,11 +13,14 @@ import { IMarketDataProvider, MarketMetrics, ProviderConnectionState, QuoteBatch
 import { IMarketDataAdapter, QuoteListener } from './IMarketDataAdapter';
 import { NormalizedInternalQuote, ProviderStatusInfo } from '../types/marketData';
 import { ALL_SYMBOLS, INITIAL_SYMBOLS } from './MarketEngine';
+import { getSymbolMapping } from './SymbolMapping';
 
 export interface TiingoAdapterOptions {
   apiToken: string;
   wsUrl?: string;
+  cryptoWsUrl?: string;
   tickers?: string[];
+  cryptoTickers?: string[];
   autoStart?: boolean;
   staleThresholdMs?: number;
   initialReconnectDelayMs?: number;
@@ -207,12 +210,15 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
 
   private readonly apiToken: string;
   private readonly wsUrl: string;
+  private readonly cryptoWsUrl: string;
   private readonly tickers: string[];
+  private readonly cryptoTickers: string[];
   private readonly staleThresholdMs: number;
   private readonly initialReconnectDelayMs: number;
   private readonly maxReconnectDelayMs: number;
 
   private ws: WebSocket | null = null;
+  private wsCrypto: WebSocket | null = null;
   private isRunning: boolean = false;
   private reconnectAttempts: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -220,6 +226,7 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
 
   private quotes: Map<string, Quote> = new Map();
   private sessionStats: Map<string, SessionStats> = new Map();
+  private symbolLastTick: Map<string, number> = new Map();
   private symbolsMap: Map<string, SymbolConfig> = new Map();
   private activeSymbols: SymbolConfig[] = [];
   private listeners: Set<QuoteBatchListener> = new Set();
@@ -233,10 +240,15 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
   constructor(options: TiingoAdapterOptions) {
     this.apiToken = (options.apiToken || '').trim();
     this.wsUrl = options.wsUrl || 'wss://api.tiingo.com/fx';
+    this.cryptoWsUrl = options.cryptoWsUrl || 'wss://api.tiingo.com/crypto';
     this.tickers =
       options.tickers && options.tickers.length > 0
         ? options.tickers.map((t) => t.toLowerCase())
-        : ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad', 'nzdusd', 'usdcnh', 'eurjpy', 'gbpjpy'];
+        : ['eurusd', 'gbpusd', 'usdjpy', 'usdchf', 'audusd', 'usdcad', 'nzdusd', 'usdcnh', 'eurjpy', 'gbpjpy', 'xauusd', 'xagusd'];
+    this.cryptoTickers =
+      options.cryptoTickers && options.cryptoTickers.length > 0
+        ? options.cryptoTickers.map((t) => t.toLowerCase())
+        : ['btcusd', 'ethusd', 'bnbusd', 'solusd', 'xrpusd'];
     this.staleThresholdMs = options.staleThresholdMs || 15000;
     this.initialReconnectDelayMs = options.initialReconnectDelayMs || 1000;
     this.maxReconnectDelayMs = options.maxReconnectDelayMs || 30000;
@@ -245,11 +257,7 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
     for (const sym of ALL_SYMBOLS) {
       this.symbolsMap.set(sym.symbol, sym);
     }
-    // Set active symbols to the standard list so order execution and UI queries succeed
-    this.activeSymbols = ALL_SYMBOLS.slice(0, 10);
-
-    // In real-data mode, we do NOT fabricate fake baseline quotes.
-    // Quotes start empty and populate truthfully as real ticks arrive.
+    this.activeSymbols = ALL_SYMBOLS;
 
     if (options.autoStart) {
       this.start();
@@ -310,7 +318,12 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
     // Start stale quote watchdog
     this.startWatchdog();
 
-    // Establish WebSocket connection
+    // Trigger initial top-of-book REST seed for both FX and Crypto
+    this.seedInitialQuotesRest().catch((err) => {
+      console.warn('[TiingoAdapter] Initial REST seed error:', err?.message || err);
+    });
+
+    // Establish WebSocket connections (FX + Crypto)
     this.connect();
   }
 
@@ -343,6 +356,22 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
       }
     }
 
+    if (this.wsCrypto) {
+      const socket = this.wsCrypto;
+      this.wsCrypto = null;
+      socket.removeAllListeners();
+      socket.on('error', () => {});
+      try {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.close();
+        } else {
+          socket.terminate();
+        }
+      } catch {
+        // Ignore close errors
+      }
+    }
+
     this.connectionStatus = 'DISCONNECTED';
   }
 
@@ -359,6 +388,12 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
       return;
     }
 
+    this.connectFxWebSocket();
+    this.connectCryptoWebSocket();
+  }
+
+  private connectFxWebSocket(): void {
+    if (!this.isRunning || !this.apiToken) return;
     this.connectionStatus = this.reconnectAttempts === 0 ? 'CONNECTING' : 'RECONNECTING';
 
     try {
@@ -380,15 +415,56 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
         this.handleClose(code, reason ? reason.toString() : '');
       });
     } catch (err: any) {
-      console.error(`[TiingoAdapter] Failed to initialize WebSocket: ${err?.message || err}`);
+      console.error(`[TiingoAdapter] Failed to initialize FX WebSocket: ${err?.message || err}`);
       this.scheduleReconnect();
+    }
+  }
+
+  private connectCryptoWebSocket(): void {
+    if (!this.isRunning || !this.apiToken) return;
+
+    try {
+      this.wsCrypto = new WebSocket(this.cryptoWsUrl);
+
+      this.wsCrypto.on('open', () => {
+        console.log(`[TiingoAdapter] Connected to Crypto WS at ${this.cryptoWsUrl}. Subscribing: ${this.cryptoTickers.join(', ')}`);
+        if (this.wsCrypto && this.wsCrypto.readyState === WebSocket.OPEN) {
+          this.wsCrypto.send(JSON.stringify({
+            eventName: 'subscribe',
+            authorization: this.apiToken,
+            eventData: {
+              thresholdLevel: 5,
+              tickers: this.cryptoTickers,
+            },
+          }));
+        }
+      });
+
+      this.wsCrypto.on('message', (data: WebSocket.Data) => {
+        this.handleCryptoMessage(data);
+      });
+
+      this.wsCrypto.on('error', (err: Error) => {
+        console.warn(`[TiingoAdapter] Crypto WS error: ${err.message}`);
+      });
+
+      this.wsCrypto.on('close', () => {
+        this.wsCrypto = null;
+        if (this.isRunning) {
+          setTimeout(() => {
+            if (this.isRunning) this.connectCryptoWebSocket();
+          }, 3000);
+        }
+      });
+    } catch (err: any) {
+      console.warn(`[TiingoAdapter] Failed to initialize Crypto WS: ${err?.message || err}`);
     }
   }
 
   private handleOpen(): void {
     this.connectionStatus = 'CONNECTED';
     this.reconnectAttempts = 0;
-    console.log(`[TiingoAdapter] Connected to ${this.wsUrl}. Subscribing to: ${this.tickers.join(', ')}`);
+    console.log(`[TiingoAdapter] Connected to FX WS at ${this.wsUrl}. Subscribing to: ${this.tickers.join(', ')}`);
 
     this.sendSubscription();
   }
@@ -396,7 +472,6 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
   private sendSubscription(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    // Build Tiingo subscription envelope
     const payload = {
       eventName: 'subscribe',
       authorization: this.apiToken,
@@ -408,7 +483,7 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
     try {
       this.ws.send(JSON.stringify(payload));
     } catch (err: any) {
-      console.error(`[TiingoAdapter] Error sending subscription payload: ${err?.message || err}`);
+      console.error(`[TiingoAdapter] Error sending FX subscription payload: ${err?.message || err}`);
     }
   }
 
@@ -430,11 +505,11 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
 
       this.quotes.set(tuple.ticker, quote);
       this.sessionStats.set(tuple.ticker, updatedStats);
+      this.symbolLastTick.set(tuple.ticker, now);
       batch[tuple.ticker] = quote;
 
       this.ticksReceivedCount++;
-      this.lastTickTimestamp = quote.timestamp;
-      this.isStale = false;
+      this.lastTickTimestamp = now;
     }
 
     if (Object.keys(batch).length > 0) {
@@ -442,13 +517,241 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
     }
   }
 
+  private handleCryptoMessage(data: WebSocket.Data): void {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(data.toString());
+    } catch {
+      return;
+    }
+
+    if (!parsed || typeof parsed !== 'object') return;
+    if (parsed.messageType === 'H' || parsed.response?.code === 200) return;
+    if (parsed.messageType !== 'A' || !Array.isArray(parsed.data) || parsed.data.length === 0) return;
+
+    // Support both single tuple ['T', ...] and batched tuples [['T', ...], ...]
+    const rawTuples: any[][] = Array.isArray(parsed.data[0])
+      ? parsed.data
+      : (typeof parsed.data[0] === 'string' ? [parsed.data] : []);
+
+    if (rawTuples.length === 0) return;
+
+    const batch: Record<string, Quote> = {};
+    const now = Date.now();
+
+    for (const tuple of rawTuples) {
+      if (!Array.isArray(tuple) || tuple.length < 5) continue;
+
+      const type = tuple[0];
+      if (type !== 'T' && type !== 'Q') continue;
+
+      const ticker = String(tuple[1]).toUpperCase();
+      const timestampRaw = tuple[2];
+      const parsedTime = Date.parse(timestampRaw);
+      const tickTime = isNaN(parsedTime) ? now : parsedTime;
+
+      const symCfg = this.symbolsMap.get(ticker);
+      const mapping = getSymbolMapping(ticker);
+      const digits = symCfg?.digits ?? 2;
+
+      let bid: number;
+      let ask: number;
+      let mid: number;
+      let spread: number;
+
+      if (type === 'Q' && tuple.length >= 9 && typeof tuple[5] === 'number' && typeof tuple[8] === 'number') {
+        const rawBid = Number(tuple[5]);
+        const rawAsk = Number(tuple[8]);
+        if (isNaN(rawBid) || isNaN(rawAsk) || rawBid <= 0 || rawAsk <= 0) continue;
+        bid = Number(rawBid.toFixed(digits));
+        ask = Number(rawAsk.toFixed(digits));
+        mid = typeof tuple[6] === 'number' ? Number(tuple[6].toFixed(digits)) : Number(((bid + ask) / 2).toFixed(digits));
+        spread = Number((ask - bid).toFixed(digits));
+      } else {
+        // Trade update or fallback: price at index 5
+        const priceRaw = tuple[5];
+        const price = typeof priceRaw === 'number' ? priceRaw : parseFloat(priceRaw);
+        if (isNaN(price) || price <= 0) continue;
+
+        const spreadPoints = mapping?.defaultSpreadPoints ?? 10.0;
+        const halfSpread = (spreadPoints * Math.pow(10, -digits)) / 2;
+        bid = Number((price - halfSpread).toFixed(digits));
+        ask = Number((price + halfSpread).toFixed(digits));
+        mid = Number(price.toFixed(digits));
+        spread = Number((ask - bid).toFixed(digits));
+      }
+
+      const prevQuote = this.quotes.get(ticker);
+      let tickDirection: 'UP' | 'DOWN' | 'FLAT' = 'FLAT';
+      if (prevQuote) {
+        if (bid > prevQuote.bid) tickDirection = 'UP';
+        else if (bid < prevQuote.bid) tickDirection = 'DOWN';
+      }
+
+      const prevStats = this.sessionStats.get(ticker);
+      const openPrice = prevStats?.sessionOpenPrice && prevStats.sessionOpenPrice > 0 ? prevStats.sessionOpenPrice : mid;
+      const sessionHigh = prevStats ? Math.max(prevStats.sessionHigh, ask) : ask;
+      const sessionLow = prevStats ? Math.min(prevStats.sessionLow, bid) : bid;
+      const change24h = Number((mid - openPrice).toFixed(digits));
+      const change24hPct = openPrice > 0 ? Number(((change24h / openPrice) * 100).toFixed(2)) : 0;
+
+      this.sessionStats.set(ticker, {
+        sessionOpenPrice: openPrice,
+        sessionHigh,
+        sessionLow,
+      });
+
+      const quote: Quote = {
+        symbol: ticker,
+        bid,
+        ask,
+        spread,
+        mid,
+        high24h: sessionHigh,
+        low24h: sessionLow,
+        change24h,
+        change24hPct,
+        timestamp: tickTime,
+        receivedTimestamp: now,
+        tickDirection,
+        marketStatus: 'LIVE',
+        source: 'tiingo_fx',
+        digits,
+        tickSize: symCfg?.tickSize || Math.pow(10, -digits),
+        providerTimestamp: tickTime,
+      };
+
+      this.quotes.set(ticker, quote);
+      this.symbolLastTick.set(ticker, now);
+      this.ticksReceivedCount++;
+      this.lastTickTimestamp = now;
+      batch[ticker] = quote;
+    }
+
+    if (Object.keys(batch).length > 0) {
+      this.notifyListeners(batch);
+    }
+  }
+
+  public async seedInitialQuotesRest(): Promise<void> {
+    if (!this.apiToken) return;
+
+    // 1. Seed Crypto Top of Book
+    try {
+      const url = `https://api.tiingo.com/tiingo/crypto/top?tickers=${this.cryptoTickers.join(',')}&token=${this.apiToken}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          const batch: Record<string, Quote> = {};
+          const now = Date.now();
+          for (const item of data) {
+            const ticker = String(item.ticker).toUpperCase();
+            const top = item.topOfBookData?.[0];
+            if (!top || typeof top.bidPrice !== 'number' || typeof top.askPrice !== 'number') continue;
+
+            const symCfg = this.symbolsMap.get(ticker);
+            const digits = symCfg?.digits ?? 2;
+            const bid = Number(top.bidPrice.toFixed(digits));
+            const ask = Number(top.askPrice.toFixed(digits));
+            const mid = Number(((bid + ask) / 2).toFixed(digits));
+            const spread = Number((ask - bid).toFixed(digits));
+
+            const quote: Quote = {
+              symbol: ticker,
+              bid,
+              ask,
+              mid,
+              spread,
+              high24h: ask,
+              low24h: bid,
+              change24h: 0,
+              change24hPct: 0,
+              timestamp: now,
+              receivedTimestamp: now,
+              tickDirection: 'FLAT',
+              marketStatus: 'LIVE',
+              source: 'tiingo_fx',
+              digits,
+              tickSize: symCfg?.tickSize || Math.pow(10, -digits),
+              providerTimestamp: top.quoteTimestamp ? Date.parse(top.quoteTimestamp) : now,
+            };
+
+            this.quotes.set(ticker, quote);
+            this.symbolLastTick.set(ticker, now);
+            batch[ticker] = quote;
+          }
+          if (Object.keys(batch).length > 0) {
+            this.notifyListeners(batch);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[TiingoAdapter] Initial crypto REST seed error:', err);
+    }
+
+    // 2. Seed FX & Metals Top of Book
+    try {
+      const url = `https://api.tiingo.com/tiingo/fx/top?tickers=${this.tickers.join(',')}&token=${this.apiToken}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          const batch: Record<string, Quote> = {};
+          const now = Date.now();
+          for (const item of data) {
+            const ticker = String(item.ticker).toUpperCase();
+            if (typeof item.bidPrice !== 'number' || typeof item.askPrice !== 'number') continue;
+
+            const symCfg = this.symbolsMap.get(ticker);
+            const digits = symCfg?.digits ?? 5;
+            const bid = Number(item.bidPrice.toFixed(digits));
+            const ask = Number(item.askPrice.toFixed(digits));
+            const mid = typeof item.midPrice === 'number' ? Number(item.midPrice.toFixed(digits)) : Number(((bid + ask) / 2).toFixed(digits));
+            const spread = Number(
+              ((ask - bid) * Math.pow(10, digits === 3 || digits === 5 ? digits - 1 : 0)).toFixed(1)
+            );
+
+            const quote: Quote = {
+              symbol: ticker,
+              bid,
+              ask,
+              mid,
+              spread,
+              high24h: ask,
+              low24h: bid,
+              change24h: 0,
+              change24hPct: 0,
+              timestamp: now,
+              receivedTimestamp: now,
+              tickDirection: 'FLAT',
+              marketStatus: 'LIVE',
+              source: 'tiingo_fx',
+              digits,
+              tickSize: symCfg?.tickSize || Math.pow(10, -digits),
+              providerTimestamp: item.quoteTimestamp ? Date.parse(item.quoteTimestamp) : now,
+            };
+
+            this.quotes.set(ticker, quote);
+            this.symbolLastTick.set(ticker, now);
+            batch[ticker] = quote;
+          }
+          if (Object.keys(batch).length > 0) {
+            this.notifyListeners(batch);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[TiingoAdapter] Initial FX REST seed error:', err);
+    }
+  }
+
   private handleError(err: Error): void {
-    // Sanitized logging: Never expose API token
     console.error(`[TiingoAdapter] WebSocket error: ${err.message}`);
   }
 
   private handleClose(code: number, reason: string): void {
-    console.warn(`[TiingoAdapter] WebSocket closed (code: ${code}, reason: ${reason || 'none'})`);
+    console.warn(`[TiingoAdapter] FX WebSocket closed (code: ${code}, reason: ${reason || 'none'})`);
     this.ws = null;
     if (this.isRunning) {
       this.scheduleReconnect();
@@ -461,7 +764,6 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
     this.connectionStatus = 'RECONNECTING';
     this.reconnectAttempts++;
 
-    // Exponential backoff with ceiling: 1s, 2s, 4s, 8s, 16s, max 30s
     const delay = Math.min(
       this.initialReconnectDelayMs * Math.pow(2, this.reconnectAttempts - 1),
       this.maxReconnectDelayMs
@@ -471,7 +773,9 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.connect();
+      if (this.isRunning) {
+        this.connectFxWebSocket();
+      }
     }, delay);
   }
 
@@ -484,32 +788,33 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
   }
 
   /**
-   * Stale quote detection: Checks if more than staleThresholdMs (default 15s)
+   * Stale quote detection: Checks per-symbol whether more than staleThresholdMs
    * has elapsed since the last valid quote.
    */
   public checkStaleQuote(): boolean {
-    if (this.lastTickTimestamp === 0) return false;
+    const now = Date.now();
+    let anyStale = false;
+    const staleBatch: Record<string, Quote> = {};
 
-    const elapsed = Date.now() - this.lastTickTimestamp;
-    const nowStale = elapsed > this.staleThresholdMs;
-
-    if (nowStale && !this.isStale) {
-      this.isStale = true;
-      console.warn(`[TiingoAdapter] Stale quote detected: No EURUSD tick received for ${Math.floor(elapsed / 1000)}s`);
-
-      // Broadcast updated stale indicator on current quotes
-      const staleBatch: Record<string, Quote> = {};
-      for (const [sym, q] of this.quotes.entries()) {
-        const updated = { ...q, isStale: true };
+    for (const [sym, q] of this.quotes.entries()) {
+      const symTick = this.symbolLastTick.get(sym);
+      const symLast = (this.lastTickTimestamp > 0 && symTick !== undefined)
+        ? Math.min(symTick, this.lastTickTimestamp)
+        : (symTick || this.lastTickTimestamp || q.receivedTimestamp || now);
+      const elapsed = now - symLast;
+      if (elapsed > this.staleThresholdMs && !q.isStale) {
+        const updated = { ...q, isStale: true, marketStatus: 'STALE' as const };
         this.quotes.set(sym, updated);
         staleBatch[sym] = updated;
+        anyStale = true;
       }
-      this.notifyListeners(staleBatch);
-    } else if (!nowStale && this.isStale) {
-      this.isStale = false;
     }
 
-    return this.isStale;
+    if (anyStale) {
+      this.notifyListeners(staleBatch);
+    }
+
+    return anyStale;
   }
 
   private notifyListeners(batch: Record<string, Quote>): void {
@@ -694,7 +999,7 @@ export class TiingoMarketDataAdapter implements IMarketDataProvider, IMarketData
   public isQuoteStale(symbol: string): boolean {
     const q = this.quotes.get(symbol.toUpperCase());
     if (!q) return true;
-    return this.isStale || (q as any).isStale === true;
+    return this.isStale || q.marketStatus === 'STALE' || (q as any).isStale === true;
   }
 
   public generateTickBatch(): Record<string, Quote> {

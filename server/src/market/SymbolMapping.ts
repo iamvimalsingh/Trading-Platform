@@ -230,7 +230,7 @@ export const CENTRAL_SYMBOL_MAPPINGS: SymbolMappingDefinition[] = [
     isAvailableOnStandardTier: true,
   },
 
-  // --- CRYPTO — 5 (Primary: Twelve Data) ---
+  // --- CRYPTO — 5 (Primary: Tiingo Crypto Feed, Secondary: Twelve Data) ---
   {
     canonical: 'BTCUSD',
     name: 'Bitcoin / US Dollar',
@@ -244,8 +244,10 @@ export const CENTRAL_SYMBOL_MAPPINGS: SymbolMappingDefinition[] = [
     baseCurrency: 'BTC',
     quoteCurrency: 'USD',
     description: 'Crypto flagship with 24/7 continuous price action.',
+    tiingoSymbol: 'btcusd',
     twelveDataSymbol: 'BTC/USD',
-    primaryProvider: 'twelve_data',
+    primaryProvider: 'tiingo_fx',
+    secondaryProvider: 'twelve_data',
     isAvailableOnStandardTier: true,
   },
   {
@@ -261,8 +263,10 @@ export const CENTRAL_SYMBOL_MAPPINGS: SymbolMappingDefinition[] = [
     baseCurrency: 'ETH',
     quoteCurrency: 'USD',
     description: 'Smart contract layer-1 crypto flagship.',
+    tiingoSymbol: 'ethusd',
     twelveDataSymbol: 'ETH/USD',
-    primaryProvider: 'twelve_data',
+    primaryProvider: 'tiingo_fx',
+    secondaryProvider: 'twelve_data',
     isAvailableOnStandardTier: true,
   },
   {
@@ -278,8 +282,10 @@ export const CENTRAL_SYMBOL_MAPPINGS: SymbolMappingDefinition[] = [
     baseCurrency: 'BNB',
     quoteCurrency: 'USD',
     description: 'Binance ecosystem token.',
+    tiingoSymbol: 'bnbusd',
     twelveDataSymbol: 'BNB/USD',
-    primaryProvider: 'twelve_data',
+    primaryProvider: 'tiingo_fx',
+    secondaryProvider: 'twelve_data',
     isAvailableOnStandardTier: true,
   },
   {
@@ -295,8 +301,10 @@ export const CENTRAL_SYMBOL_MAPPINGS: SymbolMappingDefinition[] = [
     baseCurrency: 'SOL',
     quoteCurrency: 'USD',
     description: 'High-throughput layer-1 blockchain.',
+    tiingoSymbol: 'solusd',
     twelveDataSymbol: 'SOL/USD',
-    primaryProvider: 'twelve_data',
+    primaryProvider: 'tiingo_fx',
+    secondaryProvider: 'twelve_data',
     isAvailableOnStandardTier: true,
   },
   {
@@ -312,12 +320,14 @@ export const CENTRAL_SYMBOL_MAPPINGS: SymbolMappingDefinition[] = [
     baseCurrency: 'XRP',
     quoteCurrency: 'USD',
     description: 'Cross-border digital settlement asset.',
+    tiingoSymbol: 'xrpusd',
     twelveDataSymbol: 'XRP/USD',
-    primaryProvider: 'twelve_data',
+    primaryProvider: 'tiingo_fx',
+    secondaryProvider: 'twelve_data',
     isAvailableOnStandardTier: true,
   },
 
-  // --- COMMODITIES — 3 (Primary: Twelve Data) ---
+  // --- COMMODITIES — 3 (Metals: Tiingo + Twelve Data, Oil: Twelve Data) ---
   {
     canonical: 'XAUUSD',
     name: 'Gold (Troy Ounce) / USD',
@@ -331,8 +341,10 @@ export const CENTRAL_SYMBOL_MAPPINGS: SymbolMappingDefinition[] = [
     baseCurrency: 'XAU',
     quoteCurrency: 'USD',
     description: 'Spot Gold with high pip value and fast momentum.',
+    tiingoSymbol: 'xauusd',
     twelveDataSymbol: 'XAU/USD',
-    primaryProvider: 'twelve_data',
+    primaryProvider: 'tiingo_fx',
+    secondaryProvider: 'twelve_data',
     isAvailableOnStandardTier: true,
   },
   {
@@ -348,8 +360,10 @@ export const CENTRAL_SYMBOL_MAPPINGS: SymbolMappingDefinition[] = [
     baseCurrency: 'XAG',
     quoteCurrency: 'USD',
     description: 'Spot Silver with industrial and monetary demand.',
+    tiingoSymbol: 'xagusd',
     twelveDataSymbol: 'XAG/USD',
-    primaryProvider: 'twelve_data',
+    primaryProvider: 'tiingo_fx',
+    secondaryProvider: 'twelve_data',
     isAvailableOnStandardTier: true,
   },
   {

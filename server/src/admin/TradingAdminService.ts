@@ -42,6 +42,11 @@ export class TradingAdminService {
    */
   public async init(tenantId: string = 'tenant_default'): Promise<void> {
     try {
+      // Ensure persistence / schema migrations have executed before hydrating configs
+      if (this.runtime?.persistence) {
+        await this.runtime.persistence.init();
+      }
+
       // 1. Hydrate symbol overrides from database into InstrumentRegistry
       const overrides = await this.symbolRepo.getSymbolOverrides(tenantId);
       const registry = InstrumentRegistry.getInstance();

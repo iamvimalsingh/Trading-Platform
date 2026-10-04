@@ -38,6 +38,7 @@ export interface Quote {
   timestamp: number;
   tickDirection?: 'UP' | 'DOWN' | 'FLAT';
   marketStatus?: 'OPEN' | 'LIVE' | 'STALE' | 'CLOSED' | 'DISCONNECTED' | 'UNAVAILABLE' | 'WAITING_FOR_PROVIDER' | 'SIMULATED';
+  isStale?: boolean;
   source?: string;
   digits?: number;
   tickSize?: number;

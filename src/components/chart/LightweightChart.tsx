@@ -141,6 +141,12 @@ export const LightweightChart: React.FC<LightweightChartProps> = ({
           <span>Waiting for market data ({selectedSymbol})</span>
         </div>
       )}
+      {quote?.marketStatus === 'CLOSED' && (
+        <div className="absolute top-3 right-3 bg-zinc-900/90 backdrop-blur-sm border border-zinc-700 text-zinc-300 text-[11px] font-mono px-2.5 py-1 rounded shadow-lg pointer-events-none flex items-center gap-1.5 z-10">
+          <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+          <span>MARKET CLOSED ({selectedSymbol})</span>
+        </div>
+      )}
       {quote?.marketStatus === 'STALE' && (
         <div className="absolute top-3 right-3 bg-amber-950/90 backdrop-blur-sm border border-amber-800 text-amber-300 text-[11px] font-mono px-2.5 py-1 rounded shadow-lg pointer-events-none flex items-center gap-1.5 z-10">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />

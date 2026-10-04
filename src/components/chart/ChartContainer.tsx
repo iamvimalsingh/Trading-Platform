@@ -31,6 +31,11 @@ export const ChartContainer: React.FC = () => {
             <span className="text-[10px] font-sans font-medium px-1.5 py-0.2 rounded bg-slate-200 dark:bg-zinc-900 text-slate-700 dark:text-zinc-400 border border-slate-300 dark:border-zinc-800">
               {symbolCfg?.name || 'Selected Instrument'}
             </span>
+            {quote?.marketStatus === 'CLOSED' && (
+              <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border border-slate-300 dark:border-zinc-700">
+                CLOSED
+              </span>
+            )}
             {quote?.marketStatus === 'STALE' && (
               <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
                 STALE

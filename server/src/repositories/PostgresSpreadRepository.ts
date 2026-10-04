@@ -58,16 +58,23 @@ export class PostgresSpreadRepository {
   }
 
   public async getSpreadConfigsByTenant(tenantId: string, symbol?: string): Promise<SpreadConfigRecord[]> {
-    let query = `SELECT * FROM trading_spread_configs WHERE tenant_id = $1`;
-    const params: any[] = [tenantId];
-    if (symbol) {
-      query += ` AND symbol = $2`;
-      params.push(symbol.toUpperCase());
-    }
-    query += ` ORDER BY effective_from DESC, created_at DESC;`;
+    try {
+      let query = `SELECT * FROM trading_spread_configs WHERE tenant_id = $1`;
+      const params: any[] = [tenantId];
+      if (symbol) {
+        query += ` AND symbol = $2`;
+        params.push(symbol.toUpperCase());
+      }
+      query += ` ORDER BY effective_from DESC, created_at DESC;`;
 
-    const res = await this.db.query(query, params);
-    return res.rows.map((r: any) => this.mapRow(r));
+      const res = await this.db.query(query, params);
+      return res.rows.map((r: any) => this.mapRow(r));
+    } catch (err: any) {
+      if (err?.message?.includes('does not exist')) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   public async updateSpreadConfig(

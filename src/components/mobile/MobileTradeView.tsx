@@ -81,10 +81,11 @@ export const MobileTradeView: React.FC = () => {
     );
   }, [volume, pricingForMargin, symbolCfg, account.leverage, account.currency]);
 
-  const isStale = Boolean(quote?.marketStatus === 'STALE' || (quote as any)?.isStale);
-  const isUnavailable = quote?.marketStatus === 'UNAVAILABLE';
-  const isWaiting = !quote || quote?.marketStatus === 'WAITING_FOR_PROVIDER';
-  const isLive = Boolean(quote && quote.marketStatus === 'LIVE' && !isStale && !isUnavailable);
+  const isClosed = quote?.marketStatus === 'CLOSED';
+  const isStale = !isClosed && Boolean(quote?.marketStatus === 'STALE' || (quote as any)?.isStale);
+  const isUnavailable = !isClosed && quote?.marketStatus === 'UNAVAILABLE';
+  const isWaiting = !isClosed && !isUnavailable && !isStale && (!quote || quote?.marketStatus === 'WAITING_FOR_PROVIDER');
+  const isLive = Boolean(quote && quote.marketStatus === 'LIVE' && !isStale && !isUnavailable && !isClosed);
   const isMarketExecutable = isLive;
 
   const hasEnoughMargin = requiredMargin <= account.freeMargin;
@@ -98,6 +99,10 @@ export const MobileTradeView: React.FC = () => {
     }
 
     if (orderType === 'MARKET') {
+      if (isClosed) {
+        setLastNotification({ type: 'ERROR', message: 'Market closed' });
+        return;
+      }
       if (!quote || isWaiting) {
         setLastNotification({ type: 'ERROR', message: `Awaiting live quote for ${selectedSymbol}…` });
         return;
@@ -292,7 +297,14 @@ export const MobileTradeView: React.FC = () => {
         </div>
       )}
 
-      {/* Missing / Stale / Unavailable Market Quote Warnings */}
+      {/* Missing / Stale / Unavailable / Closed Market Quote Warnings */}
+      {isClosed && (
+        <div className="mb-3 p-3 rounded-xl bg-slate-100 dark:bg-zinc-900 border border-slate-300 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 text-xs flex items-center gap-2 font-sans font-medium">
+          <Clock className="w-5 h-5 shrink-0 text-slate-500 dark:text-zinc-400" />
+          <span className="text-xs leading-tight">Market closed</span>
+        </div>
+      )}
+
       {isStale && (
         <div className="mb-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2 font-sans font-medium">
           <Clock className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -307,7 +319,7 @@ export const MobileTradeView: React.FC = () => {
         </div>
       )}
 
-      {isWaiting && !isStale && !isUnavailable && (
+      {isWaiting && (
         <div className="mb-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 text-blue-800 dark:text-blue-300 text-xs flex items-center gap-2 font-sans">
           <Clock className="w-5 h-5 shrink-0 text-blue-500" />
           <span className="text-xs leading-tight">Awaiting live quote for {selectedSymbol}…</span>
