@@ -8,7 +8,7 @@
  */
 
 import { useTradingStore } from '../store/useTradingStore';
-import { ALL_SYMBOLS } from '../../server/src/market/MarketEngine';
+import { ALL_SYMBOLS } from '../constants/symbols';
 import { Quote } from '../types/trading';
 
 let passCount = 0;

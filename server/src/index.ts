@@ -21,6 +21,8 @@ import { AdminSpreadPricingPolicy } from './market/AdminSpreadPricingPolicy';
 import { DatabaseClient } from './db/DatabaseClient';
 import { HistoricalMarketDataService } from './market/HistoricalMarketDataService';
 import { createMarketRouter } from './market/marketRouter';
+import { FundingService } from './funding/FundingService';
+import { createFundingRouter } from './admin/fundingRouter';
 
 export interface AppServerContext {
   app: Express;
@@ -28,12 +30,21 @@ export interface AppServerContext {
   runtime: TradingRuntime;
   wsServer: TradingWebSocketServer;
   adminService: TradingAdminService;
+  fundingService: FundingService;
   historicalService: HistoricalMarketDataService;
 }
 
 export function createAppAndServer(): AppServerContext {
   const app = express();
-  app.use(express.json());
+  
+  // Capture raw request body bytes for deterministic M2M HMAC-SHA256 signature verification
+  app.use(
+    express.json({
+      verify: (req: Request, _res: Response, buf: Buffer) => {
+        (req as any).rawBody = buf.toString('utf8');
+      },
+    })
+  );
 
   const runtime = new TradingRuntime();
   runtime.start();
@@ -44,6 +55,7 @@ export function createAppAndServer(): AppServerContext {
   const symbolRepo = new PostgresSymbolRepository(db);
   const spreadPolicy = new AdminSpreadPricingPolicy();
   const historicalService = HistoricalMarketDataService.getInstance();
+  const fundingService = new FundingService(runtime);
 
   // If market data provider supports pricingPolicy, wire AdminSpreadPricingPolicy into it
   if (runtime.market && (runtime.market as any).setPricingPolicy) {
@@ -74,6 +86,7 @@ export function createAppAndServer(): AppServerContext {
           stats: '/api/runtime/stats',
           market: '/api/market',
           admin: '/api/admin/trading',
+          funding: '/api/v1/admin/trading/funding/credit',
         },
       });
     });
@@ -95,10 +108,13 @@ export function createAppAndServer(): AppServerContext {
   // Authoritative Authenticated CRM Admin Trading API (Step 5)
   app.use('/api/admin/trading', createTradingAdminRouter(adminService));
 
+  // Authoritative CRM M2M Funding Credit API (Step 3)
+  app.use('/api/v1/admin/trading/funding', createFundingRouter(fundingService));
+
   // Authoritative Market Data & Historical OHLC API (Step 6)
   app.use('/api/market', createMarketRouter(historicalService, runtime));
 
-  return { app, httpServer, runtime, wsServer, adminService, historicalService };
+  return { app, httpServer, runtime, wsServer, adminService, fundingService, historicalService };
 }
 
 export function startServer(port: number = 3000): Promise<AppServerContext> {

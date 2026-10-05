@@ -618,13 +618,16 @@ export class TradingRuntime {
         this.sendToAccount<OrderUpdatePayload>(account.id, 'ORDER_UPDATE', { order: result.order });
         this.sendToAccount<PositionUpdatePayload>(account.id, 'POSITION_UPDATE', { position });
         this.sendToAccount<AccountStatePayload>(account.id, 'ACCOUNT_STATE', { account });
-      } else {
+      } else if (result.order.status === 'WORKING') {
         // Working order placed (status === 'WORKING')
         await this.persistence.recordOrderPlacement(result.order, account.tenantId).catch((err) =>
           console.error('[Persistence] Working order persist error:', err)
         );
         this.sendToClient<OrderAckPayload>(session, 'ORDER_ACK', result, requestId);
         this.sendToAccount<OrderUpdatePayload>(account.id, 'ORDER_UPDATE', { order: result.order });
+      } else {
+        // Idempotent duplicate replay of an existing order
+        this.sendToClient<OrderAckPayload>(session, 'ORDER_ACK', result, requestId);
       }
     } else {
       // Rejection

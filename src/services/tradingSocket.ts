@@ -23,7 +23,7 @@ import {
   SessionInitPayload,
   SessionReadyPayload,
   WsEnvelope,
-} from '../../server/src/ws/wsProtocol';
+} from '../types/wsProtocol';
 import { Execution, LedgerEntry, OrderResult, Quote, TradingAccount } from '../types/trading';
 
 export type SocketStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED';

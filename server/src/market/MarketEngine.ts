@@ -379,10 +379,17 @@ export class MarketEngine implements IMarketDataProvider {
           change24hPct: 0,
           timestamp: now,
           tickDirection: 'FLAT',
+          marketStatus: 'LIVE',
+          isStale: false,
+          source: 'synthetic',
         };
         this.currentQuotes.set(sym.symbol, quote);
       }
     }
+  }
+
+  public setQuote(quote: Quote): void {
+    this.currentQuotes.set(quote.symbol, quote);
   }
 
   public getQuote(symbol: string): Quote | undefined {
@@ -471,6 +478,8 @@ export class MarketEngine implements IMarketDataProvider {
         change24hPct,
         timestamp: now,
         tickDirection: direction,
+        marketStatus: current.marketStatus || 'LIVE',
+        isStale: current.isStale ?? false,
       };
 
       this.currentQuotes.set(sym.symbol, updatedQuote);

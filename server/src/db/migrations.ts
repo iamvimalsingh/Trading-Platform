@@ -195,6 +195,24 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
        AND type = 'DEPOSIT'
        AND (amount = 25000.00 OR amount = 10000.00)
        AND (description LIKE '%External Account Hydrated from CRM%' OR description LIKE '%Initial Demo Balance%');`,
+
+    // 12. Trading Funding Transactions Table (Step 3 CRM M2M Funding Credit Idempotency & Audit)
+    `CREATE TABLE IF NOT EXISTS trading_funding_transactions (
+      id VARCHAR(64) PRIMARY KEY,
+      idempotency_key VARCHAR(128) NOT NULL,
+      account_id VARCHAR(64) NOT NULL REFERENCES trading_accounts(id),
+      tenant_id VARCHAR(64) NOT NULL DEFAULT 'tenant_default',
+      amount NUMERIC(16, 2) NOT NULL,
+      currency VARCHAR(16) NOT NULL DEFAULT 'USD',
+      balance_before NUMERIC(16, 2) NOT NULL,
+      balance_after NUMERIC(16, 2) NOT NULL,
+      note TEXT,
+      ledger_entry_id VARCHAR(64),
+      status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS',
+      created_at BIGINT NOT NULL
+    );`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_funding_idempotency_key ON trading_funding_transactions(tenant_id, idempotency_key);`,
+    `CREATE INDEX IF NOT EXISTS idx_funding_account ON trading_funding_transactions(account_id, created_at DESC);`,
   ];
 
   for (const stmt of statements) {

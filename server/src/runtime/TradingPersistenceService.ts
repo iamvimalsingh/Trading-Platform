@@ -15,6 +15,7 @@ import { PostgresOrderRepository } from '../repositories/PostgresOrderRepository
 import { PostgresPositionRepository } from '../repositories/PostgresPositionRepository';
 import { PostgresExecutionRepository } from '../repositories/PostgresExecutionRepository';
 import { PostgresLedgerRepository } from '../repositories/PostgresLedgerRepository';
+import { PostgresFundingRepository } from '../repositories/PostgresFundingRepository';
 import {
   Execution,
   LedgerEntry,
@@ -22,6 +23,7 @@ import {
   Position,
   TradingAccount,
 } from '../types/trading';
+import { FundingTransactionRecord } from '../types/funding';
 
 export class TradingPersistenceService {
   public readonly accounts: PostgresAccountRepository;
@@ -29,6 +31,7 @@ export class TradingPersistenceService {
   public readonly positions: PostgresPositionRepository;
   public readonly executions: PostgresExecutionRepository;
   public readonly ledger: PostgresLedgerRepository;
+  public readonly funding: PostgresFundingRepository;
   private initialized: boolean = false;
 
   constructor(public readonly db: IDatabaseClient) {
@@ -37,6 +40,7 @@ export class TradingPersistenceService {
     this.positions = new PostgresPositionRepository(db);
     this.executions = new PostgresExecutionRepository(db);
     this.ledger = new PostgresLedgerRepository(db);
+    this.funding = new PostgresFundingRepository(db);
   }
 
   public async init(): Promise<void> {
@@ -214,5 +218,52 @@ export class TradingPersistenceService {
   public async recordAccountUpdate(account: TradingAccount): Promise<void> {
     await this.init();
     await this.accounts.updateAccount(account);
+  }
+
+  /**
+   * Atomically applies a funding credit to an account, inserting the funding transaction
+   * record and immutable ledger entry within a single transactional boundary.
+   */
+  public async applyFundingCredit(
+    record: FundingTransactionRecord,
+    ledgerEntry: LedgerEntry,
+    updatedAccount: TradingAccount,
+    tenantId: string = 'tenant_default'
+  ): Promise<{ applied: boolean; duplicate: boolean; existingRecord?: FundingTransactionRecord }> {
+    await this.init();
+
+    // 1. Pre-check transactionId
+    const existingById = await this.funding.getFundingTransaction(record.id);
+    if (existingById) {
+      return { applied: false, duplicate: true, existingRecord: existingById };
+    }
+
+    // 2. Pre-check idempotencyKey
+    const existingByIdempotency = await this.funding.getFundingTransactionByIdempotencyKey(tenantId, record.idempotencyKey);
+    if (existingByIdempotency) {
+      return { applied: false, duplicate: true, existingRecord: existingByIdempotency };
+    }
+
+    // 3. Execute atomic transaction
+    return await this.db.transaction(async (txClient) => {
+      const txFunding = new PostgresFundingRepository(txClient);
+      const txLedger = new PostgresLedgerRepository(txClient);
+      const txAccounts = new PostgresAccountRepository(txClient);
+
+      const existingInTx = await txFunding.getFundingTransactionByIdempotencyKey(tenantId, record.idempotencyKey);
+      if (existingInTx) {
+        return { applied: false, duplicate: true, existingRecord: existingInTx };
+      }
+
+      const saveFunding = await txFunding.recordFundingTransaction(record);
+      if (!saveFunding.inserted) {
+        return { applied: false, duplicate: true, existingRecord: saveFunding.record };
+      }
+
+      await txLedger.createEntry(ledgerEntry, tenantId);
+      await txAccounts.updateAccount(updatedAccount);
+
+      return { applied: true, duplicate: false, existingRecord: record };
+    });
   }
 }

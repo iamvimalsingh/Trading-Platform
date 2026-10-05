@@ -56,6 +56,7 @@ async function runStep5Tests() {
   }
   process.env.DATABASE_STORAGE_PATH = testDbDir;
   process.env.ADMIN_API_SECRET = 'super_secret_admin_test_key_2026';
+  process.env.CRM_LAUNCH_SECRET = 'test_crm_launch_secret_key_8849204';
   DatabaseClient.resetInstance();
   InstrumentRegistry.resetInstance();
 

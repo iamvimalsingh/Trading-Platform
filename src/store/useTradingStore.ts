@@ -21,8 +21,8 @@ import {
   TradingAccount,
 } from '../types/trading';
 import { SocketStatus, tradingSocket, getInitialAccount, onLaunchTokenDetected, extractLaunchToken } from '../services/tradingSocket';
-import { ReplaceOrderPayload, SessionReadyPayload } from '../../server/src/ws/wsProtocol';
-import { ALL_SYMBOLS, INITIAL_SYMBOLS } from '../../server/src/market/MarketEngine';
+import { ReplaceOrderPayload, SessionReadyPayload } from '../types/wsProtocol';
+import { ALL_SYMBOLS, INITIAL_SYMBOLS } from '../constants/symbols';
 
 export interface TradingState {
   // Connection State

@@ -30,6 +30,7 @@ export class DatabaseClient implements IDatabaseClient {
   private pgPool: Pool | null = null;
   private pglite: PGlite | null = null;
   private ready: boolean = false;
+  private initPromise: Promise<void> | null = null;
   private storagePath: string;
 
   private constructor(storageDir?: string) {
@@ -55,42 +56,66 @@ export class DatabaseClient implements IDatabaseClient {
 
   public async init(): Promise<void> {
     if (this.ready) return;
+    if (this.initPromise) return this.initPromise;
 
-    const databaseUrl = process.env.DATABASE_URL?.trim();
+    this.initPromise = (async () => {
+      const databaseUrl = process.env.DATABASE_URL?.trim();
 
-    if (databaseUrl) {
-      // Connect to remote PostgreSQL via pg.Pool
-      this.pgPool = new Pool({
-        connectionString: databaseUrl,
-        max: 10,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
-      });
+      if (databaseUrl) {
+        // Connect to remote PostgreSQL via pg.Pool
+        this.pgPool = new Pool({
+          connectionString: databaseUrl,
+          max: 10,
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: 5000,
+        });
 
-      // Verify connection
-      const client = await this.pgPool.connect();
-      try {
-        await client.query('SELECT 1');
-      } finally {
-        client.release();
-      }
-    } else {
-      // Use persistent embedded PostgreSQL engine
-      try {
+        // Verify connection
+        const client = await this.pgPool.connect();
+        try {
+          await client.query('SELECT 1');
+        } finally {
+          client.release();
+        }
+      } else {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('[DatabaseClient] FATAL: DATABASE_URL is required in production environment. Embedded PGlite fallback is disabled in production to prevent OOM.');
+        }
+        // Use persistent embedded PostgreSQL engine
         if (!fs.existsSync(this.storagePath)) {
           fs.mkdirSync(this.storagePath, { recursive: true });
         }
 
-        this.pglite = new PGlite(this.storagePath);
-        await this.pglite.query('SELECT 1');
-      } catch {
-        // Fall back to in-memory PGlite if disk storage directory is locked or busy
-        this.pglite = new PGlite();
-        await this.pglite.query('SELECT 1');
-      }
-    }
+        let pgliteReady = false;
+        let lastErr: any = null;
 
-    this.ready = true;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          try {
+            this.pglite = new PGlite(this.storagePath);
+            await this.pglite.query('SELECT 1');
+            pgliteReady = true;
+            break;
+          } catch (err) {
+            lastErr = err;
+            await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+          }
+        }
+
+        if (!pgliteReady) {
+          console.warn('[DatabaseClient] Warning: Persistent PGlite initialization failed, falling back to in-memory:', lastErr);
+          this.pglite = new PGlite();
+          await this.pglite.query('SELECT 1');
+        }
+      }
+
+      this.ready = true;
+    })();
+
+    try {
+      await this.initPromise;
+    } finally {
+      this.initPromise = null;
+    }
   }
 
   public async query<T = any>(sql: string, params?: any[]): Promise<QueryResult<T>> {

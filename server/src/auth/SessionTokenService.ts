@@ -29,14 +29,15 @@ export interface TokenVerificationResult {
 export class SessionTokenService {
   /**
    * Retrieves server signing secret from environment.
-   * Default fallback provided only for local development/testing.
+   * Strictly enforces CRM_LAUNCH_SECRET without fallback to JWT_SECRET.
+   * Fails closed if absent. Never logs the secret.
    */
   public static getSecret(): string {
-    return (
-      process.env.CRM_LAUNCH_SECRET?.trim() ||
-      process.env.JWT_SECRET?.trim() ||
-      'dev_crm_launch_secret_key_change_in_prod'
-    );
+    const secret = process.env.CRM_LAUNCH_SECRET?.trim();
+    if (!secret) {
+      return '';
+    }
+    return secret;
   }
 
   /**
@@ -71,6 +72,9 @@ export class SessionTokenService {
     secret?: string
   ): string {
     const signingKey = secret || this.getSecret();
+    if (!signingKey) {
+      throw new Error('CRM_LAUNCH_SECRET is absent or not configured');
+    }
     const nowSec = Math.floor(Date.now() / 1000);
 
     const fullPayload: ExternalSessionTokenPayload = {
@@ -102,13 +106,17 @@ export class SessionTokenService {
       return { valid: false, error: 'INVALID_FORMAT', errorMessage: 'Empty or non-string token provided' };
     }
 
+    const signingKey = secret || this.getSecret();
+    if (!signingKey) {
+      return { valid: false, error: 'MISSING_SECRET', errorMessage: 'CRM_LAUNCH_SECRET is absent or not configured' };
+    }
+
     const parts = token.trim().split('.');
     if (parts.length !== 3) {
       return { valid: false, error: 'INVALID_FORMAT', errorMessage: 'Malformed token structure (expected 3 dot-separated segments)' };
     }
 
     const [headerB64, payloadB64, signatureB64] = parts;
-    const signingKey = secret || this.getSecret();
 
     // 1. Verify cryptographic signature
     const expectedSignature = createHmac('sha256', signingKey)
@@ -142,27 +150,30 @@ export class SessionTokenService {
       };
     }
 
-    // 4. Validate and normalize mandatory domain identity claims
+    // 4. Validate and normalize mandatory domain identity claims (iss, aud, sub, accountId, accountNumber, tenantId)
+    const iss = rawClaims.iss;
+    const aud = rawClaims.aud;
     const sub = rawClaims.sub || rawClaims.userId || rawClaims.user_id || rawClaims.clientId || rawClaims.client_id;
     const accountId = rawClaims.accountId || rawClaims.account_id || rawClaims.accountNumber || rawClaims.account_number;
     const accountNumber = rawClaims.accountNumber || rawClaims.account_number || rawClaims.accountId || rawClaims.account_id;
+    const tenantId = rawClaims.tenantId || rawClaims.tenant_id;
 
-    if (!sub || !accountId || !accountNumber) {
+    if (!iss || !aud || !sub || !accountId || !accountNumber || !tenantId) {
       return {
         valid: false,
         claims: rawClaims,
         error: 'MALFORMED_CLAIMS',
-        errorMessage: 'Token payload missing mandatory claims (sub, accountId, accountNumber)',
+        errorMessage: 'Token payload missing mandatory claims (iss, aud, sub, accountId, accountNumber, tenantId)',
       };
     }
 
     const claims: ExternalSessionTokenPayload = {
-      iss: rawClaims.iss || 'crm-backend',
+      iss: String(iss),
       sub: String(sub),
-      aud: rawClaims.aud || 'trading-terminal',
+      aud: String(aud),
       accountId: String(accountId),
       accountNumber: String(accountNumber),
-      tenantId: rawClaims.tenantId || rawClaims.tenant_id || 'tenant_default',
+      tenantId: String(tenantId),
       platform: rawClaims.platform || 'MT5',
       currency: rawClaims.currency || 'USD',
       accountType: rawClaims.accountType || rawClaims.account_type || 'LIVE',
