@@ -48,6 +48,26 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       updated_at BIGINT NOT NULL
     );`,
 
+    // Ensure all required columns exist even if trading_accounts was previously created by an external service/CRM
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL DEFAULT 'tenant_default';`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS client_id VARCHAR(64);`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS account_number VARCHAR(64);`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS platform VARCHAR(32) NOT NULL DEFAULT 'MT5';`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS currency VARCHAR(16) NOT NULL DEFAULT 'USD';`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS account_type VARCHAR(16) NOT NULL DEFAULT 'LIVE';`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS session_mode VARCHAR(16) NOT NULL DEFAULT 'EXTERNAL';`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS leverage NUMERIC NOT NULL DEFAULT 100;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS balance NUMERIC(16, 2) NOT NULL DEFAULT 0.00;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS equity NUMERIC(16, 2) NOT NULL DEFAULT 0.00;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS used_margin NUMERIC(16, 2) NOT NULL DEFAULT 0.00;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS free_margin NUMERIC(16, 2) NOT NULL DEFAULT 0.00;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS margin_level NUMERIC(10, 2) NOT NULL DEFAULT 0.00;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS margin_call_level NUMERIC(10, 2) NOT NULL DEFAULT 100.00;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS stop_out_level NUMERIC(10, 2) NOT NULL DEFAULT 50.00;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE';`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS created_at BIGINT;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS updated_at BIGINT;`,
+
     `CREATE INDEX IF NOT EXISTS idx_accounts_tenant ON trading_accounts(tenant_id, account_number);`,
 
     // 2. Trading Orders Table
