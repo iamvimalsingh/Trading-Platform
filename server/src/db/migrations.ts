@@ -7,6 +7,7 @@
  */
 
 import { IDatabaseClient } from './DatabaseClient';
+import { SchemaInspector } from './timestampUtils';
 
 export async function runMigrations(db: IDatabaseClient): Promise<void> {
   // 0. Detect if trading_accounts.id is UUID or VARCHAR in target database
@@ -259,4 +260,6 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       console.warn('[runMigrations] Non-fatal migration statement warning:', err?.message || err);
     }
   }
+
+  await SchemaInspector.loadSchema(db);
 }

@@ -145,7 +145,7 @@ export class PostgresAccountRepository implements IAccountRepository {
         session_mode = $3,
         updated_at = $4
       WHERE id = $5 AND tenant_id = $6;`,
-      [account.clientId || null, account.platform || 'MT5', 'EXTERNAL', toDbTimestamp(), account.id, account.tenantId || 'tenant_default']
+      [account.clientId || null, account.platform || 'MT5', 'EXTERNAL', toDbTimestamp(undefined, 'trading_accounts', 'updated_at'), account.id, account.tenantId || 'tenant_default']
     );
   }
 
@@ -163,7 +163,8 @@ export class PostgresAccountRepository implements IAccountRepository {
   }
 
   public async updateAccount(account: TradingAccount): Promise<void> {
-    const ts = toDbTimestamp();
+    const tsCreatedAt = toDbTimestamp(account.createdAt, 'trading_accounts', 'created_at');
+    const tsUpdatedAt = toDbTimestamp(undefined, 'trading_accounts', 'updated_at');
     await this.db.query(
       `INSERT INTO trading_accounts (
         id, tenant_id, client_id, account_number, platform, currency,
@@ -212,8 +213,8 @@ export class PostgresAccountRepository implements IAccountRepository {
         account.tradingEnabled !== undefined ? account.tradingEnabled : true,
         account.maxOrderVolume ?? null,
         account.maxPositionVolume ?? null,
-        account.createdAt ? toDbTimestamp(account.createdAt) : ts,
-        ts,
+        tsCreatedAt,
+        tsUpdatedAt,
       ]
     );
   }

@@ -34,7 +34,7 @@ export class PostgresLedgerRepository implements ILedgerRepository {
         entry.balanceAfter,
         entry.referenceId || null,
         entry.description,
-        toDbTimestamp(entry.createdAt),
+        toDbTimestamp(entry.createdAt, 'trading_ledger', 'created_at'),
       ]
     );
     return entry;

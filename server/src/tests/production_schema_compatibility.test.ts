@@ -168,6 +168,40 @@ async function runSchemaCompatibilityTests() {
     'updateAccountBalance executes with toDbTimestamp() successfully'
   );
 
+  console.log('\n--- 8. BIGINT TIMESTAMP COLUMN COMPATIBILITY TESTS ---');
+  // Create test table with explicit PostgreSQL BIGINT columns simulating pre-existing Supabase tables
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_bigint_compat (
+      id VARCHAR(64) PRIMARY KEY,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
+  `);
+
+  const { SchemaInspector } = await import('../db/timestampUtils');
+  await SchemaInspector.loadSchema(db);
+
+  const bigintVal = toDbTimestamp(nowMs, 'test_bigint_compat', 'created_at');
+  assert(
+    typeof bigintVal === 'number',
+    'TIME-03',
+    `SchemaInspector detected BIGINT column and formatted parameter as number (${typeof bigintVal})`
+  );
+
+  await db.query(
+    `INSERT INTO test_bigint_compat (id, created_at, updated_at) VALUES ($1, $2, $3);`,
+    ['bi_test_01', bigintVal, bigintVal]
+  );
+
+  const biRow = await db.query(`SELECT * FROM test_bigint_compat WHERE id = 'bi_test_01';`);
+  const parsedBiCreated = parseDbTimestamp(biRow.rows[0].created_at);
+
+  assert(
+    Math.abs(parsedBiCreated - nowMs) < 5000,
+    'TIME-04',
+    `BIGINT column writes number without bigint syntax error and reads back accurate epoch ms (${parsedBiCreated} vs ${nowMs})`
+  );
+
   await db.close();
 
   console.log('\n=============================================================');

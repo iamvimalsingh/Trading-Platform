@@ -68,8 +68,8 @@ export class PostgresOrderRepository implements IOrderRepository {
         order.takeProfit ?? null,
         order.status,
         order.rejectReason ?? null,
-        toDbTimestamp(order.createdAt),
-        order.executedAt ? toDbTimestamp(order.executedAt) : null,
+        toDbTimestamp(order.createdAt, 'trading_orders', 'created_at'),
+        order.executedAt ? toDbTimestamp(order.executedAt, 'trading_orders', 'executed_at') : null,
       ]
     );
   }

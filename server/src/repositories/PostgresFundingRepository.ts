@@ -118,7 +118,7 @@ export class PostgresFundingRepository implements IFundingRepository {
         margin_level = $4,
         updated_at = $5
       WHERE id = $6;`,
-      [balance, equity, freeMargin, marginLevel, toDbTimestamp(), trimmedId]
+      [balance, equity, freeMargin, marginLevel, toDbTimestamp(undefined, 'trading_accounts', 'updated_at'), trimmedId]
     );
   }
 
@@ -165,7 +165,7 @@ export class PostgresFundingRepository implements IFundingRepository {
         record.note || null,
         record.ledgerEntryId || null,
         record.status,
-        toDbTimestamp(record.createdAt),
+        toDbTimestamp(record.createdAt, 'trading_funding_transactions', 'created_at'),
       ]
     );
 

@@ -73,8 +73,8 @@ export class PostgresPositionRepository implements IPositionRepository {
         position.stopLoss ?? null,
         position.takeProfit ?? null,
         position.marginLocked || 0,
-        toDbTimestamp(position.openedAt),
-        position.closedAt ? toDbTimestamp(position.closedAt) : null,
+        toDbTimestamp(position.openedAt, 'trading_positions', 'opened_at'),
+        position.closedAt ? toDbTimestamp(position.closedAt, 'trading_positions', 'closed_at') : null,
         position.status,
       ]
     );

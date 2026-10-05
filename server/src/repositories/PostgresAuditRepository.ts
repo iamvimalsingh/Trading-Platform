@@ -29,7 +29,7 @@ export class PostgresAuditRepository {
         entry.prevState ? JSON.stringify(entry.prevState) : null,
         entry.newState ? JSON.stringify(entry.newState) : null,
         entry.reason || null,
-        toDbTimestamp(entry.timestamp),
+        toDbTimestamp(entry.timestamp, 'trading_audit_log', 'timestamp'),
       ]
     );
   }

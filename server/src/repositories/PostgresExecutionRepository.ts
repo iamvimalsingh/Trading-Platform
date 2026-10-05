@@ -64,7 +64,7 @@ export class PostgresExecutionRepository implements IExecutionRepository {
         execution.fee || 0,
         execution.realizedPnL ?? null,
         execution.clientOrderId || null,
-        toDbTimestamp(execution.timestamp),
+        toDbTimestamp(execution.timestamp, 'trading_executions', 'timestamp'),
       ]
     );
     return { inserted: res.rows.length > 0 };

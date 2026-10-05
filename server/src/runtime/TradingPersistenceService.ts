@@ -10,6 +10,7 @@
 
 import { DatabaseClient, IDatabaseClient } from '../db/DatabaseClient';
 import { runMigrations } from '../db/migrations';
+import { SchemaInspector } from '../db/timestampUtils';
 import { PostgresAccountRepository } from '../repositories/PostgresAccountRepository';
 import { PostgresOrderRepository } from '../repositories/PostgresOrderRepository';
 import { PostgresPositionRepository } from '../repositories/PostgresPositionRepository';
@@ -46,6 +47,7 @@ export class TradingPersistenceService {
   public async init(): Promise<void> {
     if (this.initialized) return;
     await runMigrations(this.db);
+    await SchemaInspector.loadSchema(this.db);
     this.initialized = true;
   }
 
