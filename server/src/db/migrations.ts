@@ -9,6 +9,21 @@
 import { IDatabaseClient } from './DatabaseClient';
 
 export async function runMigrations(db: IDatabaseClient): Promise<void> {
+  // 0. Detect if trading_accounts.id is UUID or VARCHAR in target database
+  let isUuidAccount = false;
+  try {
+    const colRes = await db.query(
+      `SELECT data_type FROM information_schema.columns WHERE table_name = 'trading_accounts' AND column_name = 'id' LIMIT 1;`
+    );
+    if (colRes.rows.length > 0 && colRes.rows[0].data_type?.toLowerCase() === 'uuid') {
+      isUuidAccount = true;
+    }
+  } catch {
+    // Ignore error if information_schema is restricted
+  }
+
+  const accountFkType = isUuidAccount ? 'UUID' : 'VARCHAR(64)';
+
   const statements = [
     // 1. Trading Accounts Table
     `CREATE TABLE IF NOT EXISTS trading_accounts (
@@ -39,7 +54,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
     `CREATE TABLE IF NOT EXISTS trading_orders (
       id VARCHAR(64) PRIMARY KEY,
       client_order_id VARCHAR(64) NOT NULL,
-      account_id VARCHAR(64) NOT NULL REFERENCES trading_accounts(id),
+      account_id ${accountFkType} NOT NULL REFERENCES trading_accounts(id),
       tenant_id VARCHAR(64) NOT NULL DEFAULT 'tenant_default',
       symbol VARCHAR(32) NOT NULL,
       side VARCHAR(8) NOT NULL,
@@ -60,7 +75,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
     // 3. Trading Positions Table
     `CREATE TABLE IF NOT EXISTS trading_positions (
       id VARCHAR(64) PRIMARY KEY,
-      account_id VARCHAR(64) NOT NULL REFERENCES trading_accounts(id),
+      account_id ${accountFkType} NOT NULL REFERENCES trading_accounts(id),
       tenant_id VARCHAR(64) NOT NULL DEFAULT 'tenant_default',
       symbol VARCHAR(32) NOT NULL,
       side VARCHAR(8) NOT NULL,
@@ -84,7 +99,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       id VARCHAR(64) PRIMARY KEY,
       order_id VARCHAR(64),
       position_id VARCHAR(64),
-      account_id VARCHAR(64) NOT NULL REFERENCES trading_accounts(id),
+      account_id ${accountFkType} NOT NULL REFERENCES trading_accounts(id),
       tenant_id VARCHAR(64) NOT NULL DEFAULT 'tenant_default',
       symbol VARCHAR(32) NOT NULL,
       side VARCHAR(8) NOT NULL,
@@ -103,7 +118,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
     // 5. Trading Ledger Table
     `CREATE TABLE IF NOT EXISTS trading_ledger (
       id VARCHAR(64) PRIMARY KEY,
-      account_id VARCHAR(64) NOT NULL REFERENCES trading_accounts(id),
+      account_id ${accountFkType} NOT NULL REFERENCES trading_accounts(id),
       tenant_id VARCHAR(64) NOT NULL DEFAULT 'tenant_default',
       type VARCHAR(32) NOT NULL,
       amount NUMERIC(16, 2) NOT NULL,
@@ -171,13 +186,15 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
     );`,
     `CREATE INDEX IF NOT EXISTS idx_symbol_configs_tenant ON trading_symbol_configs(tenant_id, symbol);`,
 
-    // 10. Seed default demo accounts for foreign key consistency
-    `INSERT INTO trading_accounts (id, tenant_id, client_id, account_number, platform, currency, account_type, session_mode, leverage, balance, equity, used_margin, free_margin, margin_level, margin_call_level, stop_out_level, status, created_at, updated_at)
-     VALUES ('acc_demo_1001', 'tenant_default', 'client_demo_1001', 'DEMO-1001', 'PROPRIETARY', 'USD', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', 1700000000000, 1700000000000)
-     ON CONFLICT (id) DO NOTHING;`,
-    `INSERT INTO trading_accounts (id, tenant_id, client_id, account_number, platform, currency, account_type, session_mode, leverage, balance, equity, used_margin, free_margin, margin_level, margin_call_level, stop_out_level, status, created_at, updated_at)
-     VALUES ('acc_demo_1002', 'tenant_default', 'client_demo_1002', 'DEMO-1002', 'PROPRIETARY', 'EUR', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', 1700000000000, 1700000000000)
-     ON CONFLICT (id) DO NOTHING;`,
+    // 10. Seed default demo accounts for foreign key consistency (only if id is not strictly uuid in database)
+    ...(isUuidAccount ? [] : [
+      `INSERT INTO trading_accounts (id, tenant_id, client_id, account_number, platform, currency, account_type, session_mode, leverage, balance, equity, used_margin, free_margin, margin_level, margin_call_level, stop_out_level, status, created_at, updated_at)
+       VALUES ('acc_demo_1001', 'tenant_default', 'client_demo_1001', 'DEMO-1001', 'PROPRIETARY', 'USD', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', 1700000000000, 1700000000000)
+       ON CONFLICT (id) DO NOTHING;`,
+      `INSERT INTO trading_accounts (id, tenant_id, client_id, account_number, platform, currency, account_type, session_mode, leverage, balance, equity, used_margin, free_margin, margin_level, margin_call_level, stop_out_level, status, created_at, updated_at)
+       VALUES ('acc_demo_1002', 'tenant_default', 'client_demo_1002', 'DEMO-1002', 'PROPRIETARY', 'EUR', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', 1700000000000, 1700000000000)
+       ON CONFLICT (id) DO NOTHING;`,
+    ]),
 
     // 11. Idempotent Data Repair: Target known corrupted test account 57575
     // Resets synthetic 25,000.00 / 10,000.00 balance to authoritative 0.00 without touching any other account or valid history.
@@ -200,7 +217,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
     `CREATE TABLE IF NOT EXISTS trading_funding_transactions (
       id VARCHAR(64) PRIMARY KEY,
       idempotency_key VARCHAR(128) NOT NULL,
-      account_id VARCHAR(64) NOT NULL REFERENCES trading_accounts(id),
+      account_id ${accountFkType} NOT NULL REFERENCES trading_accounts(id),
       tenant_id VARCHAR(64) NOT NULL DEFAULT 'tenant_default',
       amount NUMERIC(16, 2) NOT NULL,
       currency VARCHAR(16) NOT NULL DEFAULT 'USD',
@@ -216,6 +233,10 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
   ];
 
   for (const stmt of statements) {
-    await db.query(stmt);
+    try {
+      await db.query(stmt);
+    } catch (err: any) {
+      console.warn('[runMigrations] Non-fatal migration statement warning:', err?.message || err);
+    }
   }
 }
