@@ -9,6 +9,7 @@
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { FundingTransactionRecord } from '../types/funding';
 import { TradingAccount } from '../types/trading';
+import { parseDbTimestamp, toDbTimestamp } from '../db/timestampUtils';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -108,7 +109,6 @@ export class PostgresFundingRepository implements IFundingRepository {
     marginLevel: number
   ): Promise<void> {
     const trimmedId = accountId.trim();
-    const now = Date.now();
 
     await this.db.query(
       `UPDATE trading_accounts SET
@@ -118,7 +118,7 @@ export class PostgresFundingRepository implements IFundingRepository {
         margin_level = $4,
         updated_at = $5
       WHERE id = $6;`,
-      [balance, equity, freeMargin, marginLevel, now, trimmedId]
+      [balance, equity, freeMargin, marginLevel, toDbTimestamp(), trimmedId]
     );
   }
 
@@ -165,7 +165,7 @@ export class PostgresFundingRepository implements IFundingRepository {
         record.note || null,
         record.ledgerEntryId || null,
         record.status,
-        record.createdAt,
+        toDbTimestamp(record.createdAt),
       ]
     );
 
@@ -200,6 +200,8 @@ export class PostgresFundingRepository implements IFundingRepository {
       tradingEnabled: row.trading_enabled !== undefined && row.trading_enabled !== null ? Boolean(row.trading_enabled) : true,
       maxOrderVolume: row.max_order_volume ? Number(row.max_order_volume) : undefined,
       maxPositionVolume: row.max_position_volume ? Number(row.max_position_volume) : undefined,
+      createdAt: row.created_at ? parseDbTimestamp(row.created_at) : undefined,
+      updatedAt: row.updated_at ? parseDbTimestamp(row.updated_at) : undefined,
     };
   }
 
@@ -216,7 +218,7 @@ export class PostgresFundingRepository implements IFundingRepository {
       note: r.note || undefined,
       ledgerEntryId: r.ledger_entry_id || undefined,
       status: r.status,
-      createdAt: Number(r.created_at),
+      createdAt: parseDbTimestamp(r.created_at),
     };
   }
 }

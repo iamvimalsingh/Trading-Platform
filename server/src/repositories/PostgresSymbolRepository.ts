@@ -8,6 +8,7 @@
 
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { InstrumentDefinition } from '../market/InstrumentRegistry';
+import { toDbTimestamp } from '../db/timestampUtils';
 
 export class PostgresSymbolRepository {
   constructor(private db: IDatabaseClient) {}
@@ -19,7 +20,6 @@ export class PostgresSymbolRepository {
     updatedBy: string = 'admin'
   ): Promise<void> {
     const id = `sym_cfg_${tenantId}_${symbol.toLowerCase()}`;
-    const now = Date.now();
 
     await this.db.query(
       `INSERT INTO trading_symbol_configs (
@@ -51,7 +51,7 @@ export class PostgresSymbolRepository {
         updates.tickSize ?? null,
         updates.contractSize ?? null,
         updatedBy,
-        now,
+        toDbTimestamp(),
       ]
     );
   }

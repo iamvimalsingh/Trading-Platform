@@ -8,6 +8,7 @@
 
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { LedgerEntry } from '../types/trading';
+import { parseDbTimestamp, toDbTimestamp } from '../db/timestampUtils';
 
 export interface ILedgerRepository {
   createEntry(entry: LedgerEntry, tenantId?: string): Promise<LedgerEntry>;
@@ -33,7 +34,7 @@ export class PostgresLedgerRepository implements ILedgerRepository {
         entry.balanceAfter,
         entry.referenceId || null,
         entry.description,
-        entry.createdAt,
+        toDbTimestamp(entry.createdAt),
       ]
     );
     return entry;
@@ -52,7 +53,7 @@ export class PostgresLedgerRepository implements ILedgerRepository {
       balanceAfter: Number(r.balance_after),
       description: r.description,
       referenceId: r.reference_id || undefined,
-      createdAt: Number(r.created_at),
+      createdAt: parseDbTimestamp(r.created_at),
     }));
   }
 }

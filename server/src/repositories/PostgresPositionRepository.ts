@@ -8,6 +8,7 @@
 
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { Position, PositionStatus } from '../types/trading';
+import { parseDbTimestamp, toDbTimestamp } from '../db/timestampUtils';
 
 export interface IPositionRepository {
   savePosition(position: Position, tenantId?: string): Promise<void>;
@@ -35,8 +36,8 @@ export class PostgresPositionRepository implements IPositionRepository {
       stopLoss: row.stop_loss !== null ? Number(row.stop_loss) : undefined,
       takeProfit: row.take_profit !== null ? Number(row.take_profit) : undefined,
       marginLocked: Number(row.margin_locked),
-      openedAt: Number(row.opened_at),
-      closedAt: row.closed_at !== null ? Number(row.closed_at) : undefined,
+      openedAt: parseDbTimestamp(row.opened_at),
+      closedAt: row.closed_at !== null ? parseDbTimestamp(row.closed_at) : undefined,
       status: row.status as PositionStatus,
     };
   }
@@ -72,8 +73,8 @@ export class PostgresPositionRepository implements IPositionRepository {
         position.stopLoss ?? null,
         position.takeProfit ?? null,
         position.marginLocked || 0,
-        position.openedAt,
-        position.closedAt ?? null,
+        toDbTimestamp(position.openedAt),
+        position.closedAt ? toDbTimestamp(position.closedAt) : null,
         position.status,
       ]
     );

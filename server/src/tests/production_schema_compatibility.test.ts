@@ -127,6 +127,47 @@ async function runSchemaCompatibilityTests() {
   await runMigrations(db);
   assert(true, 'SCHEMA-RERUN', 'Second execution of runMigrations is 100% idempotent without error');
 
+  console.log('\n--- 7. DATE / TIMESTAMPTZ TYPE COMPATIBILITY TESTS ---');
+  // Create test table with explicit PostgreSQL TIMESTAMPTZ columns simulating production Supabase
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS test_timestamptz_compat (
+      id VARCHAR(64) PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  const { toDbTimestamp, parseDbTimestamp } = await import('../db/timestampUtils');
+  const nowMs = Date.now();
+  const dbTs = toDbTimestamp(nowMs);
+
+  await db.query(
+    `INSERT INTO test_timestamptz_compat (id, created_at, updated_at) VALUES ($1, $2, $3);`,
+    ['ts_test_01', dbTs, dbTs]
+  );
+
+  const tsRow = await db.query(`SELECT * FROM test_timestamptz_compat WHERE id = 'ts_test_01';`);
+  const parsedCreated = parseDbTimestamp(tsRow.rows[0].created_at);
+  const parsedUpdated = parseDbTimestamp(tsRow.rows[0].updated_at);
+
+  assert(
+    Math.abs(parsedCreated - nowMs) < 5000,
+    'TIME-01',
+    `TIMESTAMPTZ column writes JS Date and reads back accurate epoch ms (${parsedCreated} vs ${nowMs})`
+  );
+
+  // Test repository write into TIMESTAMPTZ without out-of-range error
+  const { PostgresFundingRepository } = await import('../repositories/PostgresFundingRepository');
+  const fundingRepo = new PostgresFundingRepository(db);
+
+  await fundingRepo.updateAccountBalance('acc_seed_pre_existing', 1000, 1000, 1000, 0);
+  const updatedPre = await db.query(`SELECT * FROM trading_accounts WHERE id = 'acc_seed_pre_existing';`);
+  assert(
+    Number(updatedPre.rows[0].balance) === 1000,
+    'TIME-02',
+    'updateAccountBalance executes with toDbTimestamp() successfully'
+  );
+
   await db.close();
 
   console.log('\n=============================================================');

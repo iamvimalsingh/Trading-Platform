@@ -8,6 +8,7 @@
 
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { ExternalSessionTokenPayload, LedgerEntry, TradingAccount } from '../types/trading';
+import { parseDbTimestamp, toDbTimestamp } from '../db/timestampUtils';
 
 export interface IAccountRepository {
   getAccount(idOrNumber: string): Promise<TradingAccount | undefined> | TradingAccount | undefined;
@@ -61,6 +62,8 @@ export class PostgresAccountRepository implements IAccountRepository {
       tradingEnabled: row.trading_enabled !== undefined && row.trading_enabled !== null ? Boolean(row.trading_enabled) : true,
       maxOrderVolume: row.max_order_volume ? Number(row.max_order_volume) : undefined,
       maxPositionVolume: row.max_position_volume ? Number(row.max_position_volume) : undefined,
+      createdAt: row.created_at ? parseDbTimestamp(row.created_at) : undefined,
+      updatedAt: row.updated_at ? parseDbTimestamp(row.updated_at) : undefined,
     };
   }
 
@@ -135,7 +138,6 @@ export class PostgresAccountRepository implements IAccountRepository {
   }
 
   public async updateAccountMetadataOnly(account: TradingAccount): Promise<void> {
-    const now = Date.now();
     await this.db.query(
       `UPDATE trading_accounts SET
         client_id = $1,
@@ -143,7 +145,7 @@ export class PostgresAccountRepository implements IAccountRepository {
         session_mode = $3,
         updated_at = $4
       WHERE id = $5 AND tenant_id = $6;`,
-      [account.clientId || null, account.platform || 'MT5', 'EXTERNAL', now, account.id, account.tenantId || 'tenant_default']
+      [account.clientId || null, account.platform || 'MT5', 'EXTERNAL', toDbTimestamp(), account.id, account.tenantId || 'tenant_default']
     );
   }
 
@@ -161,7 +163,7 @@ export class PostgresAccountRepository implements IAccountRepository {
   }
 
   public async updateAccount(account: TradingAccount): Promise<void> {
-    const now = Date.now();
+    const ts = toDbTimestamp();
     await this.db.query(
       `INSERT INTO trading_accounts (
         id, tenant_id, client_id, account_number, platform, currency,
@@ -210,8 +212,8 @@ export class PostgresAccountRepository implements IAccountRepository {
         account.tradingEnabled !== undefined ? account.tradingEnabled : true,
         account.maxOrderVolume ?? null,
         account.maxPositionVolume ?? null,
-        now,
-        now,
+        account.createdAt ? toDbTimestamp(account.createdAt) : ts,
+        ts,
       ]
     );
   }
@@ -267,7 +269,7 @@ export class PostgresAccountRepository implements IAccountRepository {
       sessionMode: 'EXTERNAL',
     };
 
-    const now = Date.now();
+    const ts = toDbTimestamp();
     await this.db.query(
       `INSERT INTO trading_accounts (
         id, tenant_id, client_id, account_number, platform, currency,
@@ -298,8 +300,8 @@ export class PostgresAccountRepository implements IAccountRepository {
         50,
         'ACTIVE',
         true,
-        now,
-        now,
+        ts,
+        ts,
       ]
     );
 
@@ -328,12 +330,12 @@ export class PostgresAccountRepository implements IAccountRepository {
     referenceId?: string
   ): Promise<LedgerEntry> {
     const id = `led_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const now = Date.now();
+    const nowMs = Date.now();
 
     await this.db.query(
       `INSERT INTO trading_ledger (id, account_id, tenant_id, type, amount, balance_after, reference_id, description, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
-      [id, accountId, 'tenant_default', type, amount, balanceAfter, referenceId || null, description, now]
+      [id, accountId, 'tenant_default', type, amount, balanceAfter, referenceId || null, description, toDbTimestamp(nowMs)]
     );
 
     return {
@@ -344,7 +346,7 @@ export class PostgresAccountRepository implements IAccountRepository {
       balanceAfter,
       description,
       referenceId,
-      createdAt: now,
+      createdAt: nowMs,
     };
   }
 
@@ -361,7 +363,7 @@ export class PostgresAccountRepository implements IAccountRepository {
       balanceAfter: Number(r.balance_after),
       description: r.description,
       referenceId: r.reference_id || undefined,
-      createdAt: Number(r.created_at),
+      createdAt: parseDbTimestamp(r.created_at),
     }));
   }
 

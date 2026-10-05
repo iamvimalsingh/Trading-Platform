@@ -44,8 +44,8 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       margin_call_level NUMERIC(10, 2) NOT NULL DEFAULT 100.00,
       stop_out_level NUMERIC(10, 2) NOT NULL DEFAULT 50.00,
       status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
-      created_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
 
     // Ensure all required columns exist even if trading_accounts was previously created by an external service/CRM
@@ -65,8 +65,8 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
     `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS margin_call_level NUMERIC(10, 2) NOT NULL DEFAULT 100.00;`,
     `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS stop_out_level NUMERIC(10, 2) NOT NULL DEFAULT 50.00;`,
     `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE';`,
-    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS created_at BIGINT;`,
-    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS updated_at BIGINT;`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
 
     `CREATE INDEX IF NOT EXISTS idx_accounts_tenant ON trading_accounts(tenant_id, account_number);`,
 
@@ -86,8 +86,8 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       take_profit NUMERIC(16, 5),
       status VARCHAR(16) NOT NULL,
       reject_reason TEXT,
-      created_at BIGINT NOT NULL,
-      executed_at BIGINT
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      executed_at TIMESTAMPTZ
     );`,
 
     `CREATE INDEX IF NOT EXISTS idx_orders_account ON trading_orders(account_id, status);`,
@@ -107,8 +107,8 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       stop_loss NUMERIC(16, 5),
       take_profit NUMERIC(16, 5),
       margin_locked NUMERIC(16, 2) NOT NULL DEFAULT 0.00,
-      opened_at BIGINT NOT NULL,
-      closed_at BIGINT,
+      opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      closed_at TIMESTAMPTZ,
       status VARCHAR(16) NOT NULL DEFAULT 'OPEN'
     );`,
 
@@ -130,7 +130,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       fee NUMERIC(16, 2) NOT NULL DEFAULT 0.00,
       realized_pnl NUMERIC(16, 2),
       client_order_id VARCHAR(64),
-      timestamp BIGINT NOT NULL
+      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
 
     `CREATE INDEX IF NOT EXISTS idx_executions_account ON trading_executions(account_id, timestamp DESC);`,
@@ -145,7 +145,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       balance_after NUMERIC(16, 2) NOT NULL,
       reference_id VARCHAR(64),
       description TEXT NOT NULL,
-      created_at BIGINT NOT NULL
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
 
     `CREATE INDEX IF NOT EXISTS idx_ledger_account ON trading_ledger(account_id, created_at DESC);`,
@@ -165,10 +165,10 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       spread_points NUMERIC(10, 4) NOT NULL,
       spread_unit VARCHAR(16) NOT NULL DEFAULT 'POINTS',
       is_active BOOLEAN NOT NULL DEFAULT true,
-      effective_from BIGINT NOT NULL,
+      effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       created_by VARCHAR(64) NOT NULL DEFAULT 'system',
-      created_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
     `CREATE INDEX IF NOT EXISTS idx_spread_configs_lookup ON trading_spread_configs(tenant_id, symbol, is_active, effective_from);`,
 
@@ -183,7 +183,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       prev_state JSONB,
       new_state JSONB,
       reason TEXT,
-      timestamp BIGINT NOT NULL
+      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
     `CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON trading_audit_log(tenant_id, timestamp DESC);`,
 
@@ -201,7 +201,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       tick_size NUMERIC(16, 6),
       contract_size NUMERIC(16, 2),
       updated_by VARCHAR(64),
-      updated_at BIGINT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(tenant_id, symbol)
     );`,
     `CREATE INDEX IF NOT EXISTS idx_symbol_configs_tenant ON trading_symbol_configs(tenant_id, symbol);`,
@@ -209,10 +209,10 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
     // 10. Seed default demo accounts for foreign key consistency (only if id is not strictly uuid in database)
     ...(isUuidAccount ? [] : [
       `INSERT INTO trading_accounts (id, tenant_id, client_id, account_number, platform, currency, account_type, session_mode, leverage, balance, equity, used_margin, free_margin, margin_level, margin_call_level, stop_out_level, status, created_at, updated_at)
-       VALUES ('acc_demo_1001', 'tenant_default', 'client_demo_1001', 'DEMO-1001', 'PROPRIETARY', 'USD', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', 1700000000000, 1700000000000)
+       VALUES ('acc_demo_1001', 'tenant_default', 'client_demo_1001', 'DEMO-1001', 'PROPRIETARY', 'USD', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', NOW(), NOW())
        ON CONFLICT (id) DO NOTHING;`,
       `INSERT INTO trading_accounts (id, tenant_id, client_id, account_number, platform, currency, account_type, session_mode, leverage, balance, equity, used_margin, free_margin, margin_level, margin_call_level, stop_out_level, status, created_at, updated_at)
-       VALUES ('acc_demo_1002', 'tenant_default', 'client_demo_1002', 'DEMO-1002', 'PROPRIETARY', 'EUR', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', 1700000000000, 1700000000000)
+       VALUES ('acc_demo_1002', 'tenant_default', 'client_demo_1002', 'DEMO-1002', 'PROPRIETARY', 'EUR', 'DEMO', 'DEMO', 100, 10000.00, 10000.00, 0.00, 10000.00, 0.00, 100.00, 50.00, 'ACTIVE', NOW(), NOW())
        ON CONFLICT (id) DO NOTHING;`,
     ]),
 
@@ -246,7 +246,7 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
       note TEXT,
       ledger_entry_id VARCHAR(64),
       status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS',
-      created_at BIGINT NOT NULL
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_funding_idempotency_key ON trading_funding_transactions(tenant_id, idempotency_key);`,
     `CREATE INDEX IF NOT EXISTS idx_funding_account ON trading_funding_transactions(account_id, created_at DESC);`,

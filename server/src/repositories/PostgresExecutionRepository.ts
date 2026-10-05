@@ -8,6 +8,7 @@
 
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { Execution, ExecutionType, OrderSide } from '../types/trading';
+import { parseDbTimestamp, toDbTimestamp } from '../db/timestampUtils';
 
 export interface IExecutionRepository {
   saveExecution(execution: Execution, tenantId?: string): Promise<{ inserted: boolean }>;
@@ -35,7 +36,7 @@ export class PostgresExecutionRepository implements IExecutionRepository {
       fee: Number(row.fee),
       realizedPnL: row.realized_pnl !== null ? Number(row.realized_pnl) : undefined,
       clientOrderId: row.client_order_id || undefined,
-      timestamp: Number(row.timestamp),
+      timestamp: parseDbTimestamp(row.timestamp),
     };
   }
 
@@ -63,7 +64,7 @@ export class PostgresExecutionRepository implements IExecutionRepository {
         execution.fee || 0,
         execution.realizedPnL ?? null,
         execution.clientOrderId || null,
-        execution.timestamp,
+        toDbTimestamp(execution.timestamp),
       ]
     );
     return { inserted: res.rows.length > 0 };

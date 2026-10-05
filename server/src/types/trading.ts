@@ -182,6 +182,8 @@ export interface TradingAccount {
   clientId?: string;           // External CRM Client ID
   platform?: 'MT5' | 'MT4' | 'PROPRIETARY';
   sessionMode?: SessionMode;   // 'DEMO' or 'EXTERNAL'
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export type LedgerEntryType = 'DEPOSIT' | 'WITHDRAWAL' | 'TRADE_PNL' | 'SWAP' | 'COMMISSION';

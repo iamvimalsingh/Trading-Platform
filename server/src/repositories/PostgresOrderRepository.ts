@@ -8,6 +8,7 @@
 
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { Order, OrderStatus } from '../types/trading';
+import { parseDbTimestamp, toDbTimestamp } from '../db/timestampUtils';
 
 export interface IOrderRepository {
   saveOrder(order: Order, tenantId?: string): Promise<void>;
@@ -35,8 +36,8 @@ export class PostgresOrderRepository implements IOrderRepository {
       takeProfit: row.take_profit !== null ? Number(row.take_profit) : undefined,
       status: row.status as OrderStatus,
       rejectReason: row.reject_reason || undefined,
-      createdAt: Number(row.created_at),
-      executedAt: row.executed_at !== null ? Number(row.executed_at) : undefined,
+      createdAt: parseDbTimestamp(row.created_at),
+      executedAt: row.executed_at !== null ? parseDbTimestamp(row.executed_at) : undefined,
     };
   }
 
@@ -67,8 +68,8 @@ export class PostgresOrderRepository implements IOrderRepository {
         order.takeProfit ?? null,
         order.status,
         order.rejectReason ?? null,
-        order.createdAt,
-        order.executedAt ?? null,
+        toDbTimestamp(order.createdAt),
+        order.executedAt ? toDbTimestamp(order.executedAt) : null,
       ]
     );
   }
@@ -101,10 +102,9 @@ export class PostgresOrderRepository implements IOrderRepository {
     executionPrice?: number,
     rejectReason?: string
   ): Promise<void> {
-    const now = Date.now();
     await this.db.query(
       `UPDATE trading_orders SET status = $1, execution_price = COALESCE($2, execution_price), reject_reason = COALESCE($3, reject_reason), executed_at = $4 WHERE id = $5;`,
-      [status, executionPrice ?? null, rejectReason ?? null, now, orderId]
+      [status, executionPrice ?? null, rejectReason ?? null, toDbTimestamp(), orderId]
     );
   }
 }

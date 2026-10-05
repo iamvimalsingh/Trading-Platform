@@ -162,12 +162,12 @@ async function runMasterTestSuite() {
   // Seed corrupted record for 57575 to verify migration repair logic
   await dbClient.query(`
     INSERT INTO trading_accounts (id, tenant_id, client_id, account_number, platform, currency, account_type, session_mode, leverage, balance, equity, used_margin, free_margin, margin_level, margin_call_level, stop_out_level, status, created_at, updated_at)
-    VALUES ('acc_crm_57575', 'tenant_default', 'client_57575', '57575', 'MT5', 'USD', 'LIVE', 'EXTERNAL', 100, 25000.00, 25000.00, 0.00, 25000.00, 0.00, 100.00, 50.00, 'ACTIVE', 1700000000000, 1700000000000)
+    VALUES ('acc_crm_57575', 'tenant_default', 'client_57575', '57575', 'MT5', 'USD', 'LIVE', 'EXTERNAL', 100, 25000.00, 25000.00, 0.00, 25000.00, 0.00, 100.00, 50.00, 'ACTIVE', NOW(), NOW())
     ON CONFLICT (id) DO UPDATE SET balance = 25000.00, equity = 25000.00, free_margin = 25000.00;
   `);
   await dbClient.query(`
     INSERT INTO trading_ledger (id, account_id, tenant_id, type, amount, balance_after, description, created_at)
-    VALUES ('led_corrupt_57575', 'acc_crm_57575', 'tenant_default', 'DEPOSIT', 25000.00, 25000.00, 'External Account Hydrated from CRM (MT5 #57575)', 1700000000000)
+    VALUES ('led_corrupt_57575', 'acc_crm_57575', 'tenant_default', 'DEPOSIT', 25000.00, 25000.00, 'External Account Hydrated from CRM (MT5 #57575)', NOW())
     ON CONFLICT (id) DO NOTHING;
   `);
 

@@ -8,6 +8,7 @@
 
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { SpreadConfigRecord } from '../types/admin';
+import { parseDbTimestamp, toDbTimestamp } from '../db/timestampUtils';
 
 export class PostgresSpreadRepository {
   constructor(private db: IDatabaseClient) {}
@@ -20,14 +21,15 @@ export class PostgresSpreadRepository {
       spreadPoints: Number(r.spread_points),
       spreadUnit: r.spread_unit,
       isActive: Boolean(r.is_active),
-      effectiveFrom: Number(r.effective_from),
+      effectiveFrom: parseDbTimestamp(r.effective_from),
       createdBy: r.created_by,
-      createdAt: Number(r.created_at),
-      updatedAt: Number(r.updated_at),
+      createdAt: parseDbTimestamp(r.created_at),
+      updatedAt: parseDbTimestamp(r.updated_at),
     };
   }
 
   public async createSpreadConfig(config: SpreadConfigRecord): Promise<void> {
+    const ts = toDbTimestamp();
     await this.db.query(
       `INSERT INTO trading_spread_configs (
         id, tenant_id, symbol, spread_points, spread_unit,
@@ -40,10 +42,10 @@ export class PostgresSpreadRepository {
         config.spreadPoints,
         config.spreadUnit || 'POINTS',
         config.isActive,
-        config.effectiveFrom,
+        toDbTimestamp(config.effectiveFrom),
         config.createdBy,
-        config.createdAt,
-        config.updatedAt,
+        config.createdAt ? toDbTimestamp(config.createdAt) : ts,
+        ts,
       ]
     );
   }
@@ -109,8 +111,8 @@ export class PostgresSpreadRepository {
         updated.spreadPoints,
         updated.spreadUnit,
         updated.isActive,
-        updated.effectiveFrom,
-        updated.updatedAt,
+        toDbTimestamp(updated.effectiveFrom),
+        toDbTimestamp(now),
         id,
         tenantId,
       ]

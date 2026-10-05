@@ -8,6 +8,7 @@
 
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { AdminAuditEntry } from '../types/admin';
+import { parseDbTimestamp, toDbTimestamp } from '../db/timestampUtils';
 
 export class PostgresAuditRepository {
   constructor(private db: IDatabaseClient) {}
@@ -28,7 +29,7 @@ export class PostgresAuditRepository {
         entry.prevState ? JSON.stringify(entry.prevState) : null,
         entry.newState ? JSON.stringify(entry.newState) : null,
         entry.reason || null,
-        entry.timestamp,
+        toDbTimestamp(entry.timestamp),
       ]
     );
   }
@@ -68,7 +69,7 @@ export class PostgresAuditRepository {
       prevState: r.prev_state ? (typeof r.prev_state === 'string' ? JSON.parse(r.prev_state) : r.prev_state) : undefined,
       newState: r.new_state ? (typeof r.new_state === 'string' ? JSON.parse(r.new_state) : r.new_state) : undefined,
       reason: r.reason || undefined,
-      timestamp: Number(r.timestamp),
+      timestamp: parseDbTimestamp(r.timestamp),
     }));
   }
 }
