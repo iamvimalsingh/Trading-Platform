@@ -27,9 +27,11 @@ export interface TwelveDataAdapterOptions {
   apiKey?: string;
   wsUrl?: string;
   restBaseUrl?: string;
-  symbols?: string[]; // Canonical symbols, e.g. ['BTCUSD', 'ETHUSD', 'XAUUSD', 'XAGUSD']
+  symbols?: string[]; // Canonical symbols, e.g. ['BTCUSD', 'ETHUSD', 'XAUUSD', 'XAGUSD', 'WTIUSD']
   autoStart?: boolean;
   staleThresholdMs?: number;
+  restStaleThresholdMs?: number;
+  restPollIntervalMs?: number;
   initialReconnectDelayMs?: number;
   maxReconnectDelayMs?: number;
 }
@@ -58,6 +60,8 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
   private readonly wsUrl: string;
   private readonly restBaseUrl: string;
   private readonly staleThresholdMs: number;
+  private readonly restStaleThresholdMs: number;
+  private readonly restPollIntervalMs: number;
   private readonly initialReconnectDelayMs: number;
   private readonly maxReconnectDelayMs: number;
 
@@ -84,6 +88,8 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     this.wsUrl = options?.wsUrl || 'wss://ws.twelvedata.com/v1/quotes/price';
     this.restBaseUrl = options?.restBaseUrl || 'https://api.twelvedata.com';
     this.staleThresholdMs = options?.staleThresholdMs || 15000;
+    this.restStaleThresholdMs = options?.restStaleThresholdMs || 45000; // 3x 15s REST polling cadence
+    this.restPollIntervalMs = options?.restPollIntervalMs || 15000;
     this.initialReconnectDelayMs = options?.initialReconnectDelayMs || 1000;
     this.maxReconnectDelayMs = options?.maxReconnectDelayMs || 30000;
 
@@ -110,7 +116,7 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     this.isRunning = true;
 
     if (!this.isKeyConfigured()) {
-      console.log('[TwelveDataMarketDataAdapter] No TWELVE_DATA_API_KEY configured. Running in idle/standby mode.');
+      console.warn('[TwelveDataMarketDataAdapter] WARNING: TWELVE_DATA_API_KEY is not configured. Running in idle/standby mode. WTI/USD (Crude Oil) and Twelve Data secondary feeds will not receive live market quotes.');
       this.status = 'DISCONNECTED';
       return;
     }
@@ -131,7 +137,7 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
       if (this.unsupportedWebSocketSymbols.size > 0 || !this.isHealthy()) {
         this.pollRestQuotes().catch(() => {});
       }
-    }, 15000);
+    }, this.restPollIntervalMs);
   }
 
   public stop(): void {
@@ -153,13 +159,19 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     }
 
     if (this.ws) {
+      const socket = this.ws;
+      this.ws = null;
+      socket.removeAllListeners();
+      socket.on('error', () => {});
       try {
-        this.ws.removeAllListeners();
-        this.ws.close();
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.close();
+        } else {
+          socket.terminate();
+        }
       } catch {
         // ignore
       }
-      this.ws = null;
     }
 
     this.status = 'DISCONNECTED';
@@ -231,7 +243,26 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
   }
 
   public isHealthy(): boolean {
-    return this.isRunning && this.status === 'CONNECTED' && Date.now() - this.lastMessageTimestamp < this.staleThresholdMs;
+    if (!this.isRunning) return false;
+    if (this.status === 'CONNECTED') {
+      return Date.now() - this.lastMessageTimestamp < this.staleThresholdMs;
+    }
+    if (this.unsupportedWebSocketSymbols.size > 0 && this.lastMessageTimestamp > 0) {
+      return Date.now() - this.lastMessageTimestamp < this.restStaleThresholdMs;
+    }
+    return false;
+  }
+
+  public getStaleThresholdForSymbol(symbol: string): number {
+    const canonical = symbol.toUpperCase();
+    if (this.unsupportedWebSocketSymbols.has(canonical)) {
+      return this.restStaleThresholdMs;
+    }
+    const mapping = getSymbolMapping(canonical);
+    if (mapping?.category === 'COMMODITIES') {
+      return this.restStaleThresholdMs;
+    }
+    return this.staleThresholdMs;
   }
 
   public getQuote(canonicalSymbol: string): NormalizedInternalQuote | undefined {
@@ -485,6 +516,9 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
       else if (bid < existing.bid) tickDirection = 'DOWN';
     }
 
+    const now = Date.now();
+    const isClosed = isMarketSessionClosed(mapping.category, now);
+
     const normalized: NormalizedInternalQuote = {
       symbol: canonical,
       bid,
@@ -493,8 +527,8 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
       spread,
       timestamp,
       providerTimestamp: timestamp,
-      receivedTimestamp: timestamp,
-      marketStatus: 'LIVE',
+      receivedTimestamp: now,
+      marketStatus: isClosed ? 'CLOSED' : 'LIVE',
       providerId: this.providerId,
       assetClass: mapping.category,
       digits,
@@ -541,7 +575,13 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     );
 
     const now = Date.now();
-    const tickTime = event.timestamp ? event.timestamp * 1000 : now;
+    let tickTime = now;
+    if (typeof event.timestamp === 'number' && event.timestamp > 0) {
+      // Exact-once conversion: epoch seconds (< 1e11) to epoch milliseconds
+      tickTime = event.timestamp > 1e11 ? event.timestamp : event.timestamp * 1000;
+    }
+
+    const isClosed = isMarketSessionClosed(mapping.category, now);
 
     const existing = this.quotes.get(canonical);
     let tickDirection: 'UP' | 'DOWN' | 'FLAT' = 'FLAT';
@@ -559,7 +599,7 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
       timestamp: tickTime,
       providerTimestamp: tickTime,
       receivedTimestamp: now,
-      marketStatus: 'LIVE',
+      marketStatus: isClosed ? 'CLOSED' : 'LIVE',
       providerId: this.providerId,
       assetClass: mapping.category,
       digits,
@@ -642,16 +682,29 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
         const change = item.change ? parseFloat(item.change) : 0;
         const now = Date.now();
 
+        let tickTime = now;
+        if (typeof item.timestamp === 'number' && item.timestamp > 0) {
+          // Exact-once conversion: epoch seconds (< 1e11) to epoch milliseconds
+          tickTime = item.timestamp > 1e11 ? item.timestamp : item.timestamp * 1000;
+        } else if (typeof item.timestamp === 'string') {
+          const parsed = Date.parse(item.timestamp);
+          if (!isNaN(parsed) && parsed > 0) {
+            tickTime = parsed;
+          }
+        }
+
+        const isClosed = isMarketSessionClosed(mapping.category, now);
+
         const seededQuote: NormalizedInternalQuote = {
           symbol: canonical,
           bid,
           ask,
           mid: closePrice,
           spread,
-          timestamp: item.timestamp ? item.timestamp * 1000 : now,
-          providerTimestamp: item.timestamp ? item.timestamp * 1000 : now,
+          timestamp: tickTime,
+          providerTimestamp: tickTime,
           receivedTimestamp: now,
-          marketStatus: 'LIVE',
+          marketStatus: isClosed ? 'CLOSED' : 'LIVE',
           providerId: this.providerId,
           assetClass: mapping.category,
           digits,
@@ -689,9 +742,14 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
           quote.marketStatus = 'CLOSED';
           this.emitQuote({ ...quote });
         }
-      } else if (quote.marketStatus === 'LIVE' && now - quote.timestamp > this.staleThresholdMs) {
-        quote.marketStatus = 'STALE';
-        this.emitQuote({ ...quote });
+      } else {
+        const threshold = this.getStaleThresholdForSymbol(sym);
+        const quoteTime = quote.receivedTimestamp || quote.timestamp;
+        const quoteAge = now - quoteTime;
+        if (quote.marketStatus === 'LIVE' && quoteAge > threshold) {
+          quote.marketStatus = 'STALE';
+          this.emitQuote({ ...quote });
+        }
       }
     }
   }

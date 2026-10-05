@@ -99,7 +99,7 @@ export class MarketDataRouter implements IMarketDataProvider {
     this.categoryStaleThresholds = {
       FOREX: options?.categoryStaleThresholds?.FOREX ?? 15000,
       CRYPTO: options?.categoryStaleThresholds?.CRYPTO ?? 30000,
-      COMMODITIES: options?.categoryStaleThresholds?.COMMODITIES ?? 30000,
+      COMMODITIES: options?.categoryStaleThresholds?.COMMODITIES ?? 45000, // 3x 15s REST polling cadence
       DEFAULT: options?.categoryStaleThresholds?.DEFAULT ?? this.staleThresholdMs,
     };
 
@@ -367,7 +367,7 @@ export class MarketDataRouter implements IMarketDataProvider {
     const cat = symCfg?.category?.toUpperCase();
     if (cat === 'FOREX') return this.categoryStaleThresholds.FOREX ?? 15000;
     if (cat === 'CRYPTO') return this.categoryStaleThresholds.CRYPTO ?? 30000;
-    if (cat === 'COMMODITIES' || cat === 'METALS') return this.categoryStaleThresholds.COMMODITIES ?? 30000;
+    if (cat === 'COMMODITIES' || cat === 'METALS') return this.categoryStaleThresholds.COMMODITIES ?? 45000;
     return this.categoryStaleThresholds.DEFAULT ?? this.staleThresholdMs;
   }
 

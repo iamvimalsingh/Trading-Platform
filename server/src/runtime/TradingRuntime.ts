@@ -55,7 +55,14 @@ export function createDefaultMarketProvider(): IMarketDataProvider {
   const twelveDataKey = process.env.TWELVE_DATA_API_KEY?.trim();
 
   // If real market data is explicitly enabled and live provider credentials are provided
-  if (useRealData && (tiingoToken || twelveDataKey)) {
+  if (useRealData) {
+    if (!twelveDataKey) {
+      console.warn('[TradingRuntime] WARNING: TWELVE_DATA_API_KEY is not configured. WTI/USD (Crude Oil) and Twelve Data secondary feeds will not receive live market quotes.');
+    }
+    if (!tiingoToken) {
+      console.warn('[TradingRuntime] WARNING: TIINGO_API_TOKEN is not configured. Forex and Spot Metals feeds will not receive live market quotes.');
+    }
+
     let tiingoAdapter: TiingoMarketDataAdapter | undefined;
     let twelveDataAdapter: TwelveDataMarketDataAdapter | undefined;
 
@@ -94,7 +101,7 @@ export function createDefaultMarketProvider(): IMarketDataProvider {
       });
     }
 
-    if (useRealData && !tiingoToken && !twelveDataKey) {
+    if (!tiingoToken && !twelveDataKey) {
       console.warn('[TradingRuntime] USE_REAL_MARKET_DATA is true, but no API keys configured. Falling back to synthetic MarketEngine.');
     }
   }

@@ -511,6 +511,109 @@ async function runM2MFundingTests() {
     'Immutable double-entry ledger records all funding operations targeting canonical UUID'
   );
 
+  // --- SECTION 9: REGRESSION PROOF - ZERO INSERT/UPSERT ON TRADING_ACCOUNTS DURING FUNDING ---
+  console.log('\n--- 9. USER_ID NOT NULL & ZERO INSERT/UPSERT VERIFICATION ---');
+
+  // Seed an account with an explicit user_id (simulating Supabase user_id NOT NULL)
+  const notNullUserId = 'user_uuid_auth_999';
+  const notNullAccId = 'acc_user_not_null_555';
+  const notNullAccNum = 'ACC-NOTNULL-555';
+
+  // Ensure user_id column is simulated if needed
+  try {
+    await serverContext2.runtime.persistence.db.query(
+      `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);`
+    );
+  } catch {
+    // column already exists
+  }
+
+  await serverContext2.runtime.persistence.db.query(
+    `INSERT INTO trading_accounts (
+      id, user_id, tenant_id, client_id, account_number, platform, currency,
+      account_type, session_mode, leverage, balance, equity, used_margin,
+      free_margin, margin_level, margin_call_level, stop_out_level, status,
+      created_at, updated_at
+    ) VALUES 
+      ($1, $2, $3, 'cli_user_555', $4, 'MT5', 'USD', 'LIVE', 'EXTERNAL', 100, 1000.00, 1000.00, 0.00, 1000.00, 0.00, 100.00, 50.00, 'ACTIVE', $5, $5)
+    ON CONFLICT (id) DO NOTHING;`,
+    [notNullAccId, notNullUserId, testTenantId, notNullAccNum, Date.now()]
+  );
+
+  const fundingQueriesExecuted: string[] = [];
+  const origQuery = serverContext2.runtime.persistence.db.query.bind(serverContext2.runtime.persistence.db);
+  const origTx = serverContext2.runtime.persistence.db.transaction.bind(serverContext2.runtime.persistence.db);
+  (serverContext2.runtime.persistence.db as any).query = async (sql: string, params?: any[]) => {
+    fundingQueriesExecuted.push(sql);
+    return origQuery(sql, params);
+  };
+  (serverContext2.runtime.persistence.db as any).transaction = async (cb: any) => {
+    return origTx(async (txClient: any) => {
+      const trackingTxClient = {
+        ...txClient,
+        query: async (q: string, p?: any[]) => {
+          fundingQueriesExecuted.push(q);
+          return txClient.query(q, p);
+        },
+      };
+      return cb(trackingTxClient);
+    });
+  };
+
+  const reqNotNullFund = {
+    accountId: notNullAccId,
+    amount: 500.00,
+    currency: 'USD',
+    transactionId: 'tx_notnull_test_01',
+    idempotencyKey: 'idem_notnull_test_01',
+    note: 'Credit account with user_id NOT NULL constraint',
+  };
+
+  const resNotNullFund = await sendM2MRequestServer2(reqNotNullFund);
+  (serverContext2.runtime.persistence.db as any).query = origQuery;
+  (serverContext2.runtime.persistence.db as any).transaction = origTx;
+
+  assert(
+    resNotNullFund.status === 200 &&
+    resNotNullFund.body.success === true &&
+    resNotNullFund.body.balanceBefore === 1000.00 &&
+    resNotNullFund.body.balanceAfter === 1500.00,
+    'M2M-S01',
+    'Funding credit succeeds on account with user_id NOT NULL (Balance: $1000 -> $1500)'
+  );
+
+  // Assert NO INSERT INTO trading_accounts occurred during the funding credit transaction
+  const insertToAccounts = fundingQueriesExecuted.filter((q) =>
+    q.toLowerCase().includes('insert into trading_accounts')
+  );
+  assert(
+    insertToAccounts.length === 0,
+    'M2M-S02',
+    'Funding flow executes ZERO INSERT/UPSERT statements on trading_accounts'
+  );
+
+  // Assert targeted UPDATE was executed
+  const updateToAccounts = fundingQueriesExecuted.filter((q) =>
+    q.toLowerCase().includes('update trading_accounts set')
+  );
+  assert(
+    updateToAccounts.length >= 1,
+    'M2M-S03',
+    'Funding flow executes targeted UPDATE trading_accounts SET balance = ...'
+  );
+
+  // Assert user_id in database is preserved unchanged
+  const postFundAccRow = await serverContext2.runtime.persistence.db.query(
+    `SELECT * FROM trading_accounts WHERE id = $1;`,
+    [notNullAccId]
+  );
+  assert(
+    postFundAccRow.rows[0]?.user_id === notNullUserId &&
+    Number(postFundAccRow.rows[0]?.balance) === 1500.00,
+    'M2M-S04',
+    `Database user_id strictly preserved (${postFundAccRow.rows[0]?.user_id}) with updated balance $1500.00`
+  );
+
   // Cleanup
   serverContext2.wsServer.close();
   serverContext2.runtime.stop();

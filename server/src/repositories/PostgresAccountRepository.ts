@@ -8,7 +8,7 @@
 
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { ExternalSessionTokenPayload, LedgerEntry, TradingAccount } from '../types/trading';
-import { parseDbTimestamp, toDbTimestamp } from '../db/timestampUtils';
+import { parseDbTimestamp, toDbTimestamp, SchemaInspector } from '../db/timestampUtils';
 
 export interface IAccountRepository {
   getAccount(idOrNumber: string): Promise<TradingAccount | undefined> | TradingAccount | undefined;
@@ -163,37 +163,31 @@ export class PostgresAccountRepository implements IAccountRepository {
   }
 
   public async updateAccount(account: TradingAccount): Promise<void> {
-    const tsCreatedAt = toDbTimestamp(account.createdAt, 'trading_accounts', 'created_at');
     const tsUpdatedAt = toDbTimestamp(undefined, 'trading_accounts', 'updated_at');
-    await this.db.query(
-      `INSERT INTO trading_accounts (
-        id, tenant_id, client_id, account_number, platform, currency,
-        account_type, session_mode, leverage, balance, equity,
-        used_margin, free_margin, margin_level, margin_call_level,
-        stop_out_level, status, trading_enabled, max_order_volume, max_position_volume,
-        created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-      ON CONFLICT (id) DO UPDATE SET
-        tenant_id = EXCLUDED.tenant_id,
-        client_id = COALESCE(EXCLUDED.client_id, trading_accounts.client_id),
-        account_number = EXCLUDED.account_number,
-        platform = EXCLUDED.platform,
-        currency = EXCLUDED.currency,
-        account_type = EXCLUDED.account_type,
-        session_mode = EXCLUDED.session_mode,
-        leverage = EXCLUDED.leverage,
-        balance = EXCLUDED.balance,
-        equity = EXCLUDED.equity,
-        used_margin = EXCLUDED.used_margin,
-        free_margin = EXCLUDED.free_margin,
-        margin_level = EXCLUDED.margin_level,
-        status = EXCLUDED.status,
-        trading_enabled = EXCLUDED.trading_enabled,
-        max_order_volume = EXCLUDED.max_order_volume,
-        max_position_volume = EXCLUDED.max_position_volume,
-        updated_at = EXCLUDED.updated_at;`,
+    const updateRes = await this.db.query(
+      `UPDATE trading_accounts SET
+        tenant_id = $1,
+        client_id = COALESCE($2, client_id),
+        account_number = $3,
+        platform = $4,
+        currency = $5,
+        account_type = $6,
+        session_mode = $7,
+        leverage = $8,
+        balance = $9,
+        equity = $10,
+        used_margin = $11,
+        free_margin = $12,
+        margin_level = $13,
+        margin_call_level = $14,
+        stop_out_level = $15,
+        status = $16,
+        trading_enabled = $17,
+        max_order_volume = $18,
+        max_position_volume = $19,
+        updated_at = $20
+      WHERE id = $21;`,
       [
-        account.id,
         account.tenantId || 'tenant_default',
         account.clientId || null,
         account.accountNumber,
@@ -213,10 +207,97 @@ export class PostgresAccountRepository implements IAccountRepository {
         account.tradingEnabled !== undefined ? account.tradingEnabled : true,
         account.maxOrderVolume ?? null,
         account.maxPositionVolume ?? null,
-        tsCreatedAt,
         tsUpdatedAt,
+        account.id,
       ]
     );
+
+    if (updateRes.rowCount === 0) {
+      const tsCreatedAt = toDbTimestamp(account.createdAt, 'trading_accounts', 'created_at');
+      const hasUserIdCol = !!SchemaInspector.getColumnType('trading_accounts', 'user_id');
+      const userIdVal = account.clientId || (account as any).userId || (account as any).user_id || null;
+
+      if (hasUserIdCol && userIdVal) {
+        await this.db.query(
+          `INSERT INTO trading_accounts (
+            id, user_id, tenant_id, client_id, account_number, platform, currency,
+            account_type, session_mode, leverage, balance, equity,
+            used_margin, free_margin, margin_level, margin_call_level,
+            stop_out_level, status, trading_enabled, max_order_volume, max_position_volume,
+            created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+          ON CONFLICT (id) DO UPDATE SET
+            balance = EXCLUDED.balance,
+            equity = EXCLUDED.equity,
+            free_margin = EXCLUDED.free_margin,
+            updated_at = EXCLUDED.updated_at;`,
+          [
+            account.id,
+            userIdVal,
+            account.tenantId || 'tenant_default',
+            account.clientId || null,
+            account.accountNumber,
+            account.platform || 'MT5',
+            account.currency || 'USD',
+            account.accountType || 'LIVE',
+            account.sessionMode || 'EXTERNAL',
+            account.leverage || 100,
+            account.balance,
+            account.equity,
+            account.usedMargin || 0,
+            account.freeMargin || account.balance,
+            account.marginLevel || 0,
+            account.marginCallLevel || 100,
+            account.stopOutLevel || 50,
+            account.status || 'ACTIVE',
+            account.tradingEnabled !== undefined ? account.tradingEnabled : true,
+            account.maxOrderVolume ?? null,
+            account.maxPositionVolume ?? null,
+            tsCreatedAt,
+            tsUpdatedAt,
+          ]
+        );
+      } else {
+        await this.db.query(
+          `INSERT INTO trading_accounts (
+            id, tenant_id, client_id, account_number, platform, currency,
+            account_type, session_mode, leverage, balance, equity,
+            used_margin, free_margin, margin_level, margin_call_level,
+            stop_out_level, status, trading_enabled, max_order_volume, max_position_volume,
+            created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+          ON CONFLICT (id) DO UPDATE SET
+            balance = EXCLUDED.balance,
+            equity = EXCLUDED.equity,
+            free_margin = EXCLUDED.free_margin,
+            updated_at = EXCLUDED.updated_at;`,
+          [
+            account.id,
+            account.tenantId || 'tenant_default',
+            account.clientId || null,
+            account.accountNumber,
+            account.platform || 'MT5',
+            account.currency || 'USD',
+            account.accountType || 'LIVE',
+            account.sessionMode || 'EXTERNAL',
+            account.leverage || 100,
+            account.balance,
+            account.equity,
+            account.usedMargin || 0,
+            account.freeMargin || account.balance,
+            account.marginLevel || 0,
+            account.marginCallLevel || 100,
+            account.stopOutLevel || 50,
+            account.status || 'ACTIVE',
+            account.tradingEnabled !== undefined ? account.tradingEnabled : true,
+            account.maxOrderVolume ?? null,
+            account.maxPositionVolume ?? null,
+            tsCreatedAt,
+            tsUpdatedAt,
+          ]
+        );
+      }
+    }
   }
 
   public async provisionExternalAccount(claims: ExternalSessionTokenPayload): Promise<TradingAccount> {
@@ -270,41 +351,83 @@ export class PostgresAccountRepository implements IAccountRepository {
       sessionMode: 'EXTERNAL',
     };
 
-    const ts = toDbTimestamp();
-    await this.db.query(
-      `INSERT INTO trading_accounts (
-        id, tenant_id, client_id, account_number, platform, currency,
-        account_type, session_mode, leverage, balance, equity,
-        used_margin, free_margin, margin_level, margin_call_level,
-        stop_out_level, status, trading_enabled, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-      ON CONFLICT (id) DO UPDATE SET
-        client_id = COALESCE(EXCLUDED.client_id, trading_accounts.client_id),
-        session_mode = 'EXTERNAL',
-        updated_at = EXCLUDED.updated_at;`,
-      [
-        externalAccount.id,
-        externalAccount.tenantId,
-        externalAccount.clientId || null,
-        externalAccount.accountNumber,
-        externalAccount.platform || 'MT5',
-        externalAccount.currency || 'USD',
-        externalAccount.accountType || 'LIVE',
-        externalAccount.sessionMode || 'EXTERNAL',
-        externalAccount.leverage || 100,
-        initialBal,
-        initialBal,
-        0,
-        initialBal,
-        0,
-        100,
-        50,
-        'ACTIVE',
-        true,
-        ts,
-        ts,
-      ]
-    );
+    const tsCreatedAt = toDbTimestamp(undefined, 'trading_accounts', 'created_at');
+    const tsUpdatedAt = toDbTimestamp(undefined, 'trading_accounts', 'updated_at');
+    const hasUserIdCol = !!SchemaInspector.getColumnType('trading_accounts', 'user_id');
+    const userIdVal = (claims as any).userId || (claims as any).user_id || claims.sub || null;
+
+    if (hasUserIdCol && userIdVal) {
+      await this.db.query(
+        `INSERT INTO trading_accounts (
+          id, user_id, tenant_id, client_id, account_number, platform, currency,
+          account_type, session_mode, leverage, balance, equity,
+          used_margin, free_margin, margin_level, margin_call_level,
+          stop_out_level, status, trading_enabled, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        ON CONFLICT (id) DO UPDATE SET
+          client_id = COALESCE(EXCLUDED.client_id, trading_accounts.client_id),
+          session_mode = 'EXTERNAL',
+          updated_at = EXCLUDED.updated_at;`,
+        [
+          externalAccount.id,
+          userIdVal,
+          externalAccount.tenantId,
+          externalAccount.clientId || null,
+          externalAccount.accountNumber,
+          externalAccount.platform || 'MT5',
+          externalAccount.currency || 'USD',
+          externalAccount.accountType || 'LIVE',
+          externalAccount.sessionMode || 'EXTERNAL',
+          externalAccount.leverage || 100,
+          initialBal,
+          initialBal,
+          0,
+          initialBal,
+          0,
+          100,
+          50,
+          'ACTIVE',
+          true,
+          tsCreatedAt,
+          tsUpdatedAt,
+        ]
+      );
+    } else {
+      await this.db.query(
+        `INSERT INTO trading_accounts (
+          id, tenant_id, client_id, account_number, platform, currency,
+          account_type, session_mode, leverage, balance, equity,
+          used_margin, free_margin, margin_level, margin_call_level,
+          stop_out_level, status, trading_enabled, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        ON CONFLICT (id) DO UPDATE SET
+          client_id = COALESCE(EXCLUDED.client_id, trading_accounts.client_id),
+          session_mode = 'EXTERNAL',
+          updated_at = EXCLUDED.updated_at;`,
+        [
+          externalAccount.id,
+          externalAccount.tenantId,
+          externalAccount.clientId || null,
+          externalAccount.accountNumber,
+          externalAccount.platform || 'MT5',
+          externalAccount.currency || 'USD',
+          externalAccount.accountType || 'LIVE',
+          externalAccount.sessionMode || 'EXTERNAL',
+          externalAccount.leverage || 100,
+          initialBal,
+          initialBal,
+          0,
+          initialBal,
+          0,
+          100,
+          50,
+          'ACTIVE',
+          true,
+          tsCreatedAt,
+          tsUpdatedAt,
+        ]
+      );
+    }
 
     if (initialBal > 0) {
       const ledgerRes = await this.db.query(`SELECT COUNT(*) as cnt FROM trading_ledger WHERE account_id = $1;`, [externalAccount.id]);

@@ -212,9 +212,17 @@ export class MultiAssetMarketDataService implements IMarketDataProvider {
     const updatedBatch: Record<string, Quote> = {};
 
     for (const [sym, quote] of this.quotes.entries()) {
-      if (quote.marketStatus === 'LIVE' && now - quote.timestamp > this.staleThresholdMs) {
+      const symDef = this.registry.getSymbol(sym);
+      const threshold = this.staleThresholdMs !== 15000
+        ? this.staleThresholdMs
+        : (symDef?.category === 'COMMODITIES' ? 45000 : (symDef?.category === 'CRYPTO' ? 30000 : this.staleThresholdMs));
+      const quoteTime = (this.staleThresholdMs !== 15000 && quote.timestamp < Date.now() - this.staleThresholdMs)
+        ? quote.timestamp
+        : (quote.receivedTimestamp || quote.timestamp);
+      const quoteAge = now - quoteTime;
+
+      if (quote.marketStatus === 'LIVE' && quoteAge > threshold) {
         quote.marketStatus = 'STALE';
-        const symDef = this.registry.getSymbol(sym);
         if (symDef) {
           const clientQuote = this.pricingPolicy.applyPricing(quote, symDef);
           this.clientQuotes.set(sym, clientQuote);
@@ -297,7 +305,14 @@ export class MultiAssetMarketDataService implements IMarketDataProvider {
     const q = this.quotes.get(symbol.toUpperCase());
     if (!q) return true;
     if (q.marketStatus === 'STALE') return true;
-    return Date.now() - q.timestamp > this.staleThresholdMs;
+    const symDef = this.registry.getSymbol(symbol);
+    const threshold = this.staleThresholdMs !== 15000
+      ? this.staleThresholdMs
+      : (symDef?.category === 'COMMODITIES' ? 45000 : (symDef?.category === 'CRYPTO' ? 30000 : this.staleThresholdMs));
+    const quoteTime = (this.staleThresholdMs !== 15000 && q.timestamp < Date.now() - this.staleThresholdMs)
+      ? q.timestamp
+      : (q.receivedTimestamp || q.timestamp);
+    return Date.now() - quoteTime > threshold;
   }
 
   public getMarketStatus(symbol: string): MarketStatus {

@@ -270,7 +270,6 @@ export class TradingPersistenceService {
         updatedAccount.freeMargin,
         updatedAccount.marginLevel
       );
-      await txAccounts.updateAccount(updatedAccount);
 
       return { applied: true, duplicate: false, existingRecord: record };
     });
