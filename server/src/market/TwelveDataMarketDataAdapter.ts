@@ -69,11 +69,15 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
   private restSeedPerformed: boolean = false;
 
   private subscribedCanonicalSymbols: Set<string> = new Set();
+  private activeWebSocketSymbols: Set<string> = new Set();
+  private unsupportedWebSocketSymbols: Set<string> = new Set();
   private quoteListeners: Set<QuoteListener> = new Set();
   private quotes: Map<string, NormalizedInternalQuote> = new Map();
   private status: 'CONNECTED' | 'CONNECTING' | 'RECONNECTING' | 'DISCONNECTED' | 'DEGRADED' = 'DISCONNECTED';
   private lastMessageTimestamp: number = 0;
   private ticksReceivedCount: number = 0;
+  private restPollTimer: NodeJS.Timeout | null = null;
+  private isPollingRest: boolean = false;
 
   constructor(options?: TwelveDataAdapterOptions) {
     this.apiKey = (options?.apiKey || process.env.TWELVE_DATA_API_KEY || '').trim();
@@ -121,6 +125,13 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     this.staleWatchdogTimer = setInterval(() => {
       this.checkStale();
     }, 3000);
+
+    // Start periodic REST polling watchdog for non-streaming symbols
+    this.restPollTimer = setInterval(() => {
+      if (this.unsupportedWebSocketSymbols.size > 0 || !this.isHealthy()) {
+        this.pollRestQuotes().catch(() => {});
+      }
+    }, 15000);
   }
 
   public stop(): void {
@@ -134,6 +145,11 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     if (this.staleWatchdogTimer) {
       clearInterval(this.staleWatchdogTimer);
       this.staleWatchdogTimer = null;
+    }
+
+    if (this.restPollTimer) {
+      clearInterval(this.restPollTimer);
+      this.restPollTimer = null;
     }
 
     if (this.ws) {
@@ -282,10 +298,17 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
   private sendSubscriptionFrame(symbols: string[]): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     try {
+      // Exclude symbols that the provider explicitly rejected on WebSocket
+      const eligible = symbols.filter((s) => {
+        const can = getCanonicalFromTwelveData(s);
+        return !can || !this.unsupportedWebSocketSymbols.has(can);
+      });
+      if (eligible.length === 0) return;
+
       const payload = {
         action: 'subscribe',
         params: {
-          symbols: symbols.join(','),
+          symbols: eligible.join(','),
         },
       };
       this.ws.send(JSON.stringify(payload));
@@ -331,18 +354,161 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     }
 
     if (parsed.event === 'subscribe-status') {
-      console.log(`[TwelveDataMarketDataAdapter] Subscription status: ${parsed.status}, success: ${JSON.stringify(parsed.success)}, fails: ${JSON.stringify(parsed.fails)}`);
+      const successList: any[] = Array.isArray(parsed.success) ? parsed.success : [];
+      const failsList: any[] = Array.isArray(parsed.fails) ? parsed.fails : [];
+
+      for (const item of successList) {
+        if (item && item.symbol) {
+          const canonical = getCanonicalFromTwelveData(item.symbol);
+          if (canonical) {
+            this.activeWebSocketSymbols.add(canonical);
+            this.unsupportedWebSocketSymbols.delete(canonical);
+          }
+        }
+      }
+
+      for (const item of failsList) {
+        if (item && item.symbol) {
+          const canonical = getCanonicalFromTwelveData(item.symbol);
+          if (canonical) {
+            this.activeWebSocketSymbols.delete(canonical);
+            this.unsupportedWebSocketSymbols.add(canonical);
+          }
+        }
+      }
+
+      console.log(
+        `[TwelveDataMarketDataAdapter] Subscription status processed: ${this.activeWebSocketSymbols.size} symbols streaming via WebSocket, ${this.unsupportedWebSocketSymbols.size} symbols routed to REST live feed.`
+      );
+
+      // Trigger immediate REST poll for failed/unsupported WebSocket symbols
+      if (this.unsupportedWebSocketSymbols.size > 0) {
+        this.pollRestQuotes().catch(() => {});
+      }
       return;
     }
 
     if (parsed.event === 'error' || parsed.status === 'error') {
-      console.warn(`[TwelveDataMarketDataAdapter] Provider error: ${parsed.message || JSON.stringify(parsed)}`);
+      const note = parsed.message || (typeof parsed === 'string' ? parsed : JSON.stringify(parsed));
+      console.log(`[TwelveDataMarketDataAdapter] Provider note: ${note}`);
       return;
     }
 
     if (parsed.event === 'price' && parsed.symbol && typeof parsed.price === 'number') {
       this.processPriceEvent(parsed as RawTwelveDataPriceEvent);
     }
+  }
+
+  public async pollRestQuotes(): Promise<void> {
+    if (this.isPollingRest || !this.isRunning || !this.isKeyConfigured()) return;
+
+    const targets: string[] = [];
+    for (const can of this.subscribedCanonicalSymbols) {
+      if (this.unsupportedWebSocketSymbols.has(can) || !this.isHealthy()) {
+        const mapping = getSymbolMapping(can);
+        if (mapping?.twelveDataSymbol) {
+          targets.push(mapping.twelveDataSymbol);
+        }
+      }
+    }
+
+    if (targets.length === 0) return;
+
+    this.isPollingRest = true;
+    try {
+      const chunkSize = 3;
+      for (let i = 0; i < targets.length; i += chunkSize) {
+        if (!this.isRunning) break;
+        const chunk = targets.slice(i, i + chunkSize);
+        const url = `${this.restBaseUrl}/price?symbol=${encodeURIComponent(chunk.join(','))}&apikey=${encodeURIComponent(this.apiKey)}`;
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        try {
+          const res = await fetch(url, { signal: controller.signal });
+          clearTimeout(timeoutId);
+
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (!data || data.status === 'error' || data.code) continue;
+
+          const now = Date.now();
+          this.lastMessageTimestamp = now;
+
+          if (chunk.length === 1 && data.price) {
+            const can = getCanonicalFromTwelveData(chunk[0]);
+            if (can) {
+              this.applyRestPrice(can, parseFloat(data.price), now);
+            }
+          } else if (typeof data === 'object') {
+            for (const [providerSym, val] of Object.entries<any>(data)) {
+              if (val && val.price) {
+                const can = getCanonicalFromTwelveData(providerSym);
+                if (can) {
+                  this.applyRestPrice(can, parseFloat(val.price), now);
+                }
+              }
+            }
+          }
+        } catch {
+          clearTimeout(timeoutId);
+        }
+
+        if (i + chunkSize < targets.length) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    } finally {
+      this.isPollingRest = false;
+    }
+  }
+
+  private applyRestPrice(canonical: string, rawPrice: number, timestamp: number): void {
+    if (isNaN(rawPrice) || rawPrice <= 0) return;
+    const mapping = getSymbolMapping(canonical);
+    if (!mapping) return;
+
+    const digits = mapping.digits;
+    const mid = Number(rawPrice.toFixed(digits));
+    const halfSpread = (mapping.defaultSpreadPoints * Math.pow(10, -digits)) / 2;
+    const bid = Number((mid - halfSpread).toFixed(digits));
+    const ask = Number((mid + halfSpread).toFixed(digits));
+    const spread = Number(
+      ((ask - bid) * Math.pow(10, digits === 3 || digits === 5 ? digits - 1 : 0)).toFixed(1)
+    );
+
+    const existing = this.quotes.get(canonical);
+    let tickDirection: 'UP' | 'DOWN' | 'FLAT' = 'FLAT';
+    if (existing) {
+      if (bid > existing.bid) tickDirection = 'UP';
+      else if (bid < existing.bid) tickDirection = 'DOWN';
+    }
+
+    const normalized: NormalizedInternalQuote = {
+      symbol: canonical,
+      bid,
+      ask,
+      mid,
+      spread,
+      timestamp,
+      providerTimestamp: timestamp,
+      receivedTimestamp: timestamp,
+      marketStatus: 'LIVE',
+      providerId: this.providerId,
+      assetClass: mapping.category,
+      digits,
+      tickSize: Math.pow(10, -digits),
+      tickDirection,
+      high24h: existing ? Math.max(existing.high24h, mid) : Number((mid * 1.01).toFixed(digits)),
+      low24h: existing ? Math.min(existing.low24h, mid) : Number((mid * 0.99).toFixed(digits)),
+      change24h: existing ? Number((mid - existing.mid).toFixed(digits)) : 0,
+      change24hPct: 0,
+    };
+
+    this.ticksReceivedCount++;
+    this.quotes.set(canonical, normalized);
+    this.emitQuote(normalized);
   }
 
   private processPriceEvent(event: RawTwelveDataPriceEvent): void {

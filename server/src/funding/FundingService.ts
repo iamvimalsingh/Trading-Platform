@@ -55,8 +55,11 @@ export class FundingService {
     const trimmedTxId = transactionId.trim();
     const trimmedIdempotencyKey = idempotencyKey.trim();
 
-    // 4. Resolve Account (Check in-memory registry first, then PostgreSQL persistence)
+    // 4. Resolve Account (Check in-memory registry first, then PostgreSQL persistence via separate typed paths)
     let account = this.runtime.accounts.getAccount(trimmedAccountId);
+    if (!account) {
+      account = await this.runtime.persistence.funding.getAccount(trimmedAccountId);
+    }
     if (!account) {
       account = await this.runtime.persistence.accounts.getAccount(trimmedAccountId);
     }

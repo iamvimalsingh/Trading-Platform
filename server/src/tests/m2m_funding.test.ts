@@ -30,6 +30,7 @@ import { createAppAndServer } from '../index';
 import { DatabaseClient } from '../db/DatabaseClient';
 import { M2MAuthService } from '../auth/M2MAuthService';
 import { AdminAuthService } from '../auth/AdminAuthService';
+import { PostgresFundingRepository } from '../repositories/PostgresFundingRepository';
 
 let passCount = 0;
 let failCount = 0;
@@ -73,8 +74,8 @@ async function runM2MFundingTests() {
   await serverContext.runtime.persistence.init();
   const baseUrl = `http://127.0.0.1:${serverPort}`;
 
-  // Seed a test account
-  const testAccountId = 'acc_funding_test_1';
+  // Seed a test account with production RFC-4122 UUID
+  const testAccountId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
   const testTenantId = 'tenant_broker_alpha';
   await db.query(
     `INSERT INTO trading_accounts (
@@ -378,6 +379,137 @@ async function runM2MFundingTests() {
     },
   });
   assert(symbolsRes.status === 200, 'M2M-Q03', 'Existing /api/admin/trading/symbols accepts X-Admin-Key with 200 OK');
+
+  // --- SECTION 8: TYPED UUID VS ACCOUNT NUMBER SEPARATE PATH AUDIT ---
+  console.log('\n--- 8. TYPED UUID VS ACCOUNT NUMBER SEPARATE PATH AUDIT ---');
+
+  // Seed an account with a real RFC-4122 UUID and distinct account_number
+  const realUuidAccount = 'c0a80101-0000-0000-0000-000000000001';
+  const realAccountNumber = 'UUID-ACC-100';
+  await serverContext2.runtime.persistence.db.query(
+    `INSERT INTO trading_accounts (
+      id, tenant_id, client_id, account_number, platform, currency,
+      account_type, session_mode, leverage, balance, equity, used_margin,
+      free_margin, margin_level, margin_call_level, stop_out_level, status,
+      created_at, updated_at
+    ) VALUES 
+      ($1, $2, 'cli_uuid_user', $3, 'MT5', 'USD', 'LIVE', 'EXTERNAL', 100, 500.00, 500.00, 0.00, 500.00, 0.00, 100.00, 50.00, 'ACTIVE', $4, $4)
+    ON CONFLICT (id) DO NOTHING;`,
+    [realUuidAccount, testTenantId, realAccountNumber, Date.now()]
+  );
+
+  async function sendM2MRequestServer2(body: any, options?: { timestamp?: string; signature?: string }) {
+    const rawBody = JSON.stringify(body);
+    const timestamp = options?.timestamp ?? String(Math.floor(Date.now() / 1000));
+    const signature = options?.signature ?? M2MAuthService.computeSignature(timestamp, rawBody, testSecret);
+    const res = await fetch(`${baseUrl2}/api/v1/admin/trading/funding/credit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CRM-Timestamp': timestamp,
+        'X-CRM-Signature': signature,
+      },
+      body: rawBody,
+    });
+    const json = await res.json().catch(() => ({}));
+    return { status: res.status, body: json };
+  }
+
+  // R01: Real UUID accountId works
+  const reqUuid = {
+    accountId: realUuidAccount,
+    amount: 100.00,
+    currency: 'USD',
+    transactionId: 'tx_uuid_test_01',
+    idempotencyKey: 'idem_uuid_test_01',
+    note: 'Deposit via real UUID accountId',
+  };
+  const resUuid = await sendM2MRequestServer2(reqUuid);
+  assert(
+    resUuid.status === 200 &&
+    resUuid.body.success === true &&
+    resUuid.body.balanceBefore === 500.00 &&
+    resUuid.body.balanceAfter === 600.00 &&
+    resUuid.body.accountId === realUuidAccount,
+    'M2M-R01',
+    'Real RFC-4122 UUID accountId resolves and updates balance to $600.00'
+  );
+
+  // R02: Non-UUID account_number lookup works and resolves canonical UUID
+  const reqAccNum = {
+    accountId: realAccountNumber, // Sent by human or CRM using account_number
+    amount: 200.00,
+    currency: 'USD',
+    transactionId: 'tx_accnum_test_02',
+    idempotencyKey: 'idem_accnum_test_02',
+    note: 'Deposit via account_number lookup',
+  };
+  const resAccNum = await sendM2MRequestServer2(reqAccNum);
+  assert(
+    resAccNum.status === 200 &&
+    resAccNum.body.success === true &&
+    resAccNum.body.balanceBefore === 600.00 &&
+    resAccNum.body.balanceAfter === 800.00 &&
+    resAccNum.body.accountId === realUuidAccount, // Canonical UUID returned
+    'M2M-R02',
+    'Account-number lookup resolves account and returns canonical UUID with updated balance $800.00'
+  );
+
+  // R03: Database balance verified via repository getAccount
+  const dbBalRes = await serverContext2.runtime.persistence.funding.getAccount(realUuidAccount);
+  assert(
+    dbBalRes?.balance === 800.00 && dbBalRes?.equity === 800.00,
+    'M2M-R03',
+    'PostgreSQL database balance confirmed at $800.00 using canonical UUID lookup'
+  );
+
+  // R04: Separate typed paths verified in repository (Zero compound OR expressions)
+  const recordedQueries: string[] = [];
+  const trackingDb = {
+    query: async (sql: string, params?: any[]) => {
+      recordedQueries.push(sql);
+      return serverContext2.runtime.persistence.db.query(sql, params);
+    },
+    transaction: serverContext2.runtime.persistence.db.transaction.bind(serverContext2.runtime.persistence.db),
+  };
+  const testFundingRepo = new PostgresFundingRepository(trackingDb as any);
+
+  // 1. UUID lookup
+  await testFundingRepo.getAccount(realUuidAccount);
+  assert(
+    recordedQueries.some((q) => q.includes('WHERE id = $1::uuid')) &&
+    recordedQueries.every((q) => !q.includes('OR account_number')),
+    'M2M-R04a',
+    'UUID lookup executes strictly WHERE id = $1::uuid with ZERO compound OR clauses'
+  );
+
+  // 2. Non-UUID lookup
+  await testFundingRepo.getAccount(realAccountNumber);
+  const accNumQuery = recordedQueries[recordedQueries.length - 1];
+  assert(
+    accNumQuery.includes('WHERE account_number = $1') && !accNumQuery.includes('OR id ='),
+    'M2M-R04b',
+    'Non-UUID lookup executes strictly WHERE account_number = $1 with ZERO compound OR clauses'
+  );
+
+  // R05: Duplicate idempotency prevents double crediting on UUID account
+  const resDupUuid = await sendM2MRequestServer2(reqUuid);
+  assert(
+    resDupUuid.status === 200 && resDupUuid.body.duplicate === true,
+    'M2M-R05',
+    'Duplicate idempotency request on UUID account rejected without double-crediting'
+  );
+
+  // R06: Ledger entries confirmed for canonical UUID
+  const ledgerEntriesUuid = await serverContext2.runtime.persistence.ledger.getLedgerForAccount(realUuidAccount);
+  const depositEntries = ledgerEntriesUuid.filter((l) => l.type === 'DEPOSIT');
+  assert(
+    depositEntries.length >= 2 &&
+    depositEntries.some((d) => d.referenceId === 'tx_uuid_test_01' && d.amount === 100.00) &&
+    depositEntries.some((d) => d.referenceId === 'tx_accnum_test_02' && d.amount === 200.00),
+    'M2M-R06',
+    'Immutable double-entry ledger records all funding operations targeting canonical UUID'
+  );
 
   // Cleanup
   serverContext2.wsServer.close();

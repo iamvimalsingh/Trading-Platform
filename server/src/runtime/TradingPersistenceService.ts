@@ -261,6 +261,13 @@ export class TradingPersistenceService {
       }
 
       await txLedger.createEntry(ledgerEntry, tenantId);
+      await txFunding.updateAccountBalance(
+        updatedAccount.id,
+        updatedAccount.balance,
+        updatedAccount.equity,
+        updatedAccount.freeMargin,
+        updatedAccount.marginLevel
+      );
       await txAccounts.updateAccount(updatedAccount);
 
       return { applied: true, duplicate: false, existingRecord: record };

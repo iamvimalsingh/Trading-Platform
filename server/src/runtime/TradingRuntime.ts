@@ -69,10 +69,13 @@ export function createDefaultMarketProvider(): IMarketDataProvider {
     }
 
     if (twelveDataKey) {
-      console.log('[TradingRuntime] Initializing Twelve Data Secondary Adapter (Metals, Crypto, Oil, FX fallback: BTCUSD, ETHUSD, BNBUSD, SOLUSD, XRPUSD, XAUUSD, XAGUSD, WTIUSD)...');
+      const twelveSymbols = tiingoAdapter
+        ? ['BTCUSD', 'ETHUSD', 'BNBUSD', 'SOLUSD', 'XRPUSD', 'XAUUSD', 'XAGUSD', 'WTIUSD']
+        : ['BTCUSD', 'ETHUSD', 'BNBUSD', 'SOLUSD', 'XRPUSD', 'XAUUSD', 'XAGUSD', 'WTIUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCNH', 'EURJPY', 'GBPJPY'];
+      console.log(`[TradingRuntime] Initializing Twelve Data Secondary Adapter (${twelveSymbols.length} instruments)...`);
       twelveDataAdapter = new TwelveDataMarketDataAdapter({
         apiKey: twelveDataKey,
-        symbols: ['BTCUSD', 'ETHUSD', 'BNBUSD', 'SOLUSD', 'XRPUSD', 'XAUUSD', 'XAGUSD', 'WTIUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCNH', 'EURJPY', 'GBPJPY'],
+        symbols: twelveSymbols,
       });
     }
 

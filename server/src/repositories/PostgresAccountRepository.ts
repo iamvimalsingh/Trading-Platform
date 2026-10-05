@@ -65,21 +65,73 @@ export class PostgresAccountRepository implements IAccountRepository {
   }
 
   public async getAccount(idOrNumber: string): Promise<TradingAccount | undefined> {
-    const res = await this.db.query(
-      `SELECT * FROM trading_accounts WHERE id = $1 OR account_number = $1 LIMIT 1;`,
-      [idOrNumber]
-    );
-    if (res.rows.length === 0) return undefined;
-    return this.mapRow(res.rows[0]);
+    if (!idOrNumber || typeof idOrNumber !== 'string') return undefined;
+    const trimmed = idOrNumber.trim();
+    if (!trimmed) return undefined;
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed);
+
+    if (isUuid) {
+      try {
+        const res = await this.db.query(
+          `SELECT * FROM trading_accounts WHERE id = $1::uuid LIMIT 1;`,
+          [trimmed]
+        );
+        if (res.rows.length === 0) return undefined;
+        return this.mapRow(res.rows[0]);
+      } catch (err: any) {
+        if (err?.message?.includes('operator does not exist: character varying = uuid')) {
+          const res = await this.db.query(
+            `SELECT * FROM trading_accounts WHERE id = $1 LIMIT 1;`,
+            [trimmed]
+          );
+          if (res.rows.length === 0) return undefined;
+          return this.mapRow(res.rows[0]);
+        }
+        throw err;
+      }
+    } else {
+      let res = await this.db.query(
+        `SELECT * FROM trading_accounts WHERE account_number = $1 LIMIT 1;`,
+        [trimmed]
+      );
+      if (res.rows.length === 0) {
+        try {
+          res = await this.db.query(
+            `SELECT * FROM trading_accounts WHERE id = $1 LIMIT 1;`,
+            [trimmed]
+          );
+        } catch {
+          return undefined;
+        }
+      }
+      if (res.rows.length === 0) return undefined;
+      return this.mapRow(res.rows[0]);
+    }
   }
 
   public async getExternalAccount(tenantId: string, accountId: string, accountNumber: string): Promise<TradingAccount | undefined> {
-    const res = await this.db.query(
-      `SELECT * FROM trading_accounts WHERE tenant_id = $1 AND (id = $2 OR account_number = $3) LIMIT 1;`,
-      [tenantId || 'tenant_default', accountId, accountNumber]
-    );
-    if (res.rows.length === 0) return undefined;
-    return this.mapRow(res.rows[0]);
+    const effectiveTenant = tenantId || 'tenant_default';
+    const trimmedId = accountId ? accountId.trim() : '';
+    const trimmedNum = accountNumber ? accountNumber.trim() : '';
+
+    if (trimmedId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmedId)) {
+      const res = await this.db.query(
+        `SELECT * FROM trading_accounts WHERE tenant_id = $1 AND id = $2::uuid LIMIT 1;`,
+        [effectiveTenant, trimmedId]
+      );
+      if (res.rows.length > 0) return this.mapRow(res.rows[0]);
+    }
+
+    if (trimmedNum) {
+      const res = await this.db.query(
+        `SELECT * FROM trading_accounts WHERE tenant_id = $1 AND account_number = $2 LIMIT 1;`,
+        [effectiveTenant, trimmedNum]
+      );
+      if (res.rows.length > 0) return this.mapRow(res.rows[0]);
+    }
+
+    return undefined;
   }
 
   public async updateAccountMetadataOnly(account: TradingAccount): Promise<void> {
