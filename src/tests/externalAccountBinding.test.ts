@@ -271,6 +271,69 @@ async function runAccountBindingTests() {
     'Store state holds zero balance external account 57575 with complete financial consistency'
   );
 
+  // TEST 12: Server UNAUTHORIZED error transitions store to EXTERNAL_ERROR without fallback to DEMO
+  useTradingStore.getState().handleServerError({
+    code: 'UNAUTHORIZED',
+    message: 'External launch authentication failed: Invalid signature',
+  });
+  const authErrorState = useTradingStore.getState();
+  assert(
+    Boolean(
+      authErrorState.sessionAuthState === 'EXTERNAL_ERROR' &&
+        authErrorState.sessionAuthError?.includes('authentication failed') &&
+        authErrorState.account.sessionMode === 'EXTERNAL'
+    ),
+    16,
+    'Server UNAUTHORIZED error sets sessionAuthState = EXTERNAL_ERROR without falling back to DEMO'
+  );
+
+  // TEST 13: Server SESSION_EXPIRED error transitions store to EXTERNAL_EXPIRED
+  useTradingStore.getState().handleServerError({
+    code: 'SESSION_EXPIRED',
+    message: 'Launch token expired',
+  });
+  const expiredState = useTradingStore.getState();
+  assert(
+    Boolean(
+      expiredState.sessionAuthState === 'EXTERNAL_EXPIRED' &&
+        expiredState.sessionAuthError?.toLowerCase().includes('expired') &&
+        expiredState.account.sessionMode === 'EXTERNAL'
+    ),
+    17,
+    'Server SESSION_EXPIRED error sets sessionAuthState = EXTERNAL_EXPIRED'
+  );
+
+  // TEST 14: initSessionFromSocket transitions to EXTERNAL_AUTHENTICATED and clears error
+  useTradingStore.getState().initSessionFromSocket({
+    connectionId: 'conn_auth_success',
+    account: {
+      ...zeroBalExt.account,
+      sessionMode: 'EXTERNAL',
+    },
+    symbols: [],
+    positions: [],
+    orders: [],
+    executions: [],
+    ledger: [],
+    activeSymbols: [],
+  });
+  const authSuccessState = useTradingStore.getState();
+  assert(
+    authSuccessState.sessionAuthState === 'EXTERNAL_AUTHENTICATED' && authSuccessState.sessionAuthError === null,
+    18,
+    'initSessionFromSocket transitions sessionAuthState to EXTERNAL_AUTHENTICATED and clears error'
+  );
+
+  // TEST 15: resetAccount in external error/expired state sets EXTERNAL_PENDING for clean retry
+  useTradingStore.getState().setSessionAuthState('EXTERNAL_ERROR');
+  useTradingStore.getState().resetAccount();
+  const retryState = useTradingStore.getState();
+  assert(
+    retryState.sessionAuthState === 'EXTERNAL_PENDING' && retryState.sessionAuthError === null,
+    19,
+    'resetAccount in external state transitions to EXTERNAL_PENDING to re-verify with server'
+  );
+
   console.log('\n=============================================================');
   console.log(`  ACCOUNT BINDING TESTS: ${passed} PASSED, ${failed} FAILED`);
   console.log('=============================================================\n');

@@ -9,6 +9,7 @@ import { useTradingStore } from '../../store/useTradingStore';
 
 export const TerminalHeader: React.FC = () => {
   const account = useTradingStore((state) => state.account);
+  const sessionAuthState = useTradingStore((state) => state.sessionAuthState);
   const activeSymbolCount = useTradingStore((state) => state.activeSymbolCount);
   const fps = useTradingStore((state) => state.fps);
   const socketStatus = useTradingStore((state) => state.socketStatus);
@@ -34,10 +35,25 @@ export const TerminalHeader: React.FC = () => {
               <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs sm:text-sm tracking-tight">
                 TRADING TERMINAL
               </span>
-              {account.sessionMode === 'EXTERNAL' || account.platform === 'MT5' || (account.accountNumber && !account.accountNumber.startsWith('DEMO-')) ? (
+              {sessionAuthState === 'EXTERNAL_AUTHENTICATED' ? (
                 <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-300 dark:border-emerald-700/50 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  {account.platform || 'EXTERNAL'} #{account.accountNumber}
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  {account.platform || 'MT5'} #{account.accountNumber}
+                </span>
+              ) : sessionAuthState === 'EXTERNAL_PENDING' ? (
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 font-semibold border border-amber-300 dark:border-amber-700/50 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  {account.platform || 'MT5'} #{account.accountNumber} <span className="opacity-75">(VERIFYING)</span>
+                </span>
+              ) : sessionAuthState === 'EXTERNAL_ERROR' ? (
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 font-semibold border border-rose-300 dark:border-rose-700/50 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                  {account.platform || 'MT5'} #{account.accountNumber} <span className="opacity-75">(AUTH FAILED)</span>
+                </span>
+              ) : sessionAuthState === 'EXTERNAL_EXPIRED' ? (
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 font-semibold border border-rose-300 dark:border-rose-700/50 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                  {account.platform || 'MT5'} #{account.accountNumber} <span className="opacity-75">(EXPIRED)</span>
                 </span>
               ) : (
                 <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-semibold border border-slate-300 dark:border-zinc-700/50">

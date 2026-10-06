@@ -140,6 +140,9 @@ export function setLaunchToken(token: string): void {
   }
   const claims = parseLaunchTokenClaims(trimmed);
   if (claims) {
+    if (tradingSocket) {
+      tradingSocket.clearAuthFailure();
+    }
     for (const listener of tokenListeners) {
       try {
         listener(trimmed, claims);
@@ -386,6 +389,7 @@ export class TradingSocketClient {
   private pingInterval: number | null = null;
   private pendingRequests: Map<string, { resolve: (val: any) => void; reject: (err: any) => void; timer: number }> = new Map();
   private reqCounter: number = 0;
+  private authFailureCode: string | null = null;
 
   // Registered Event Handlers
   private sessionReadyHandlers: Set<(data: SessionReadyPayload) => void> = new Set();
@@ -409,6 +413,10 @@ export class TradingSocketClient {
     return this.status;
   }
 
+  public clearAuthFailure(): void {
+    this.authFailureCode = null;
+  }
+
   private setStatus(newStatus: SocketStatus) {
     if (this.status !== newStatus) {
       this.status = newStatus;
@@ -419,6 +427,7 @@ export class TradingSocketClient {
   }
 
   public reinitializeSession(token?: string): void {
+    this.authFailureCode = null;
     const launchToken = token || extractLaunchToken();
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.disconnect();
@@ -501,8 +510,8 @@ export class TradingSocketClient {
       this.pendingRequests.delete(id);
     }
 
-    // Auto reconnect after 2 seconds
-    if (!this.reconnectTimer) {
+    // Auto reconnect after 2 seconds unless an unrecoverable auth error (e.g. expired or unauthorized) occurred
+    if (!this.reconnectTimer && this.authFailureCode !== 'SESSION_EXPIRED' && this.authFailureCode !== 'UNAUTHORIZED') {
       this.reconnectTimer = (typeof window !== 'undefined' ? window.setTimeout : setTimeout)(() => {
         this.reconnectTimer = null;
         this.connect();
@@ -568,6 +577,7 @@ export class TradingSocketClient {
 
     switch (envelope.type) {
       case 'SESSION_READY': {
+        this.authFailureCode = null;
         const payload = envelope.payload as SessionReadyPayload;
         for (const h of this.sessionReadyHandlers) h(payload);
         break;
@@ -617,6 +627,9 @@ export class TradingSocketClient {
 
       case 'ERROR': {
         const payload = envelope.payload as ErrorPayload;
+        if (payload && (payload.code === 'SESSION_EXPIRED' || payload.code === 'UNAUTHORIZED')) {
+          this.authFailureCode = payload.code;
+        }
         for (const h of this.errorHandlers) h(payload);
         break;
       }

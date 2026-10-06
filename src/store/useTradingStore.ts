@@ -21,12 +21,22 @@ import {
   TradingAccount,
 } from '../types/trading';
 import { SocketStatus, tradingSocket, getInitialAccount, onLaunchTokenDetected, extractLaunchToken } from '../services/tradingSocket';
-import { ReplaceOrderPayload, SessionReadyPayload } from '../types/wsProtocol';
+import { ReplaceOrderPayload, SessionReadyPayload, ErrorPayload } from '../types/wsProtocol';
 import { ALL_SYMBOLS, INITIAL_SYMBOLS } from '../constants/symbols';
 
+export type SessionAuthState =
+  | 'INITIALIZING'
+  | 'DEMO'
+  | 'EXTERNAL_PENDING'
+  | 'EXTERNAL_AUTHENTICATED'
+  | 'EXTERNAL_ERROR'
+  | 'EXTERNAL_EXPIRED';
+
 export interface TradingState {
-  // Connection State
+  // Connection & Session State
   socketStatus: SocketStatus;
+  sessionAuthState: SessionAuthState;
+  sessionAuthError: string | null;
 
   // Authoritative Account State
   account: TradingAccount;
@@ -60,6 +70,8 @@ export interface TradingState {
 
   // Actions
   setSocketStatus: (status: SocketStatus) => void;
+  setSessionAuthState: (state: SessionAuthState) => void;
+  handleServerError: (err: ErrorPayload) => void;
   initSessionFromSocket: (data: SessionReadyPayload) => void;
   setSelectedSymbol: (symbol: string) => void;
   setActiveSymbolCount: (count: number) => void;
@@ -118,6 +130,8 @@ export const useTradingStore = create<TradingState>((set, get) => {
 
   return {
     socketStatus: 'DISCONNECTED',
+    sessionAuthState: initialAccountContext.isExternal ? 'EXTERNAL_PENDING' : 'DEMO',
+    sessionAuthError: null,
 
     account: initialAccountContext.account,
     ledger: initialAccountContext.ledger,
@@ -146,6 +160,34 @@ export const useTradingStore = create<TradingState>((set, get) => {
 
     setSocketStatus: (socketStatus) => set({ socketStatus }),
 
+    setSessionAuthState: (sessionAuthState) => set({ sessionAuthState }),
+
+    handleServerError: (err: ErrorPayload) => {
+      const isExpired = err.code === 'SESSION_EXPIRED';
+      const isUnauthorized = err.code === 'UNAUTHORIZED' || err.code === 'MISSING_CREDENTIAL';
+
+      set((state) => {
+        let nextAuthState = state.sessionAuthState;
+        let errorMessage = err.message || 'Server error';
+
+        if (isExpired) {
+          nextAuthState = 'EXTERNAL_EXPIRED';
+          errorMessage = err.message || 'CRM Launch Session Expired. Please relaunch from your CRM Client Panel.';
+        } else if (isUnauthorized) {
+          nextAuthState = 'EXTERNAL_ERROR';
+          errorMessage = err.message || 'CRM Launch Authentication Failed. Invalid or unverified launch token.';
+        } else if (state.account.sessionMode === 'EXTERNAL' && state.sessionAuthState === 'EXTERNAL_PENDING') {
+          nextAuthState = 'EXTERNAL_ERROR';
+          errorMessage = err.message || 'Failed to establish external trading session.';
+        }
+
+        return {
+          sessionAuthState: nextAuthState,
+          sessionAuthError: errorMessage,
+        };
+      });
+    },
+
     initSessionFromSocket: (data) => {
       const symbolsMap: Record<string, SymbolConfig> = {};
       for (const s of data.symbols) {
@@ -153,6 +195,8 @@ export const useTradingStore = create<TradingState>((set, get) => {
       }
 
       set({
+        sessionAuthState: data.account.sessionMode === 'EXTERNAL' ? 'EXTERNAL_AUTHENTICATED' : 'DEMO',
+        sessionAuthError: null,
         account: data.account,
         symbols: symbolsMap,
         activeSymbolList: data.symbols,
@@ -392,10 +436,13 @@ export const useTradingStore = create<TradingState>((set, get) => {
 
     resetAccount: () => {
       // In external CRM mode, resetting demo balance is prohibited; re-verify session with server
-      if (get().account.sessionMode === 'EXTERNAL') {
+      if (get().account.sessionMode === 'EXTERNAL' || get().sessionAuthState.startsWith('EXTERNAL')) {
+        set({ sessionAuthState: 'EXTERNAL_PENDING', sessionAuthError: null });
         const token = extractLaunchToken();
         if (token) {
           tradingSocket.reinitializeSession(token);
+        } else {
+          tradingSocket.connect();
         }
         return;
       }
@@ -408,6 +455,7 @@ export const useTradingStore = create<TradingState>((set, get) => {
 if (typeof window !== 'undefined') {
   onLaunchTokenDetected((_token, claims) => {
     if (claims && claims.accountNumber) {
+      useTradingStore.getState().setSessionAuthState('EXTERNAL_PENDING');
       const current = useTradingStore.getState().account;
       if (current.accountNumber !== String(claims.accountNumber) || current.sessionMode !== 'EXTERNAL') {
         const bal = typeof claims.balance === 'number'

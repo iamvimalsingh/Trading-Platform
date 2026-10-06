@@ -396,8 +396,10 @@ export class TradingRuntime {
 
     if (mode === 'EXTERNAL' || payload.token) {
       // MODE B — EXTERNAL / CRM-LAUNCHED SESSION
+      console.log(`[TradingRuntime] [SessionInit] External session initialization requested for connection ${connectionId}`);
       const token = payload.token?.trim();
       if (!token) {
+        console.warn(`[TradingRuntime] [SessionInit] Rejected connection ${connectionId}: Missing launch token`);
         return {
           success: false,
           errorCode: 'MISSING_CREDENTIAL',
@@ -408,6 +410,7 @@ export class TradingRuntime {
       const verifyResult = SessionTokenService.verifyLaunchToken(token);
       if (!verifyResult.valid || !verifyResult.claims) {
         const code = verifyResult.error === 'SESSION_EXPIRED' ? 'SESSION_EXPIRED' : 'UNAUTHORIZED';
+        console.warn(`[TradingRuntime] [SessionInit] Token verification failed (${code}) for connection ${connectionId}: ${verifyResult.errorMessage || 'Invalid signature'}`);
         return {
           success: false,
           errorCode: code,
@@ -416,6 +419,7 @@ export class TradingRuntime {
       }
 
       const claims = verifyResult.claims;
+      console.log(`[TradingRuntime] [SessionInit] External token verified: account=${claims.accountNumber}, client=${claims.sub}, tenant=${claims.tenantId}`);
 
       // Ownership check: Prevent browser from claiming a different account than the token grants
       if (
@@ -423,6 +427,7 @@ export class TradingRuntime {
         payload.preferredAccountId !== claims.accountId &&
         payload.preferredAccountId !== claims.accountNumber
       ) {
+        console.warn(`[TradingRuntime] [SessionInit] Account ownership mismatch: requested=${payload.preferredAccountId}, authorized=${claims.accountNumber}`);
         return {
           success: false,
           errorCode: 'UNAUTHORIZED',
