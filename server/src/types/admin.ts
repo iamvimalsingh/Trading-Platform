@@ -48,6 +48,23 @@ export interface UpdateSpreadConfigPayload {
   isActive?: boolean;
 }
 
+export interface AdminAccountCreatePayload {
+  accountNumber?: string;
+  clientId?: string | null;
+  currency?: string;
+  accountType?: 'DEMO' | 'LIVE';
+  leverage?: number;
+  initialBalance?: number;
+  status?: 'ACTIVE' | 'READ_ONLY' | 'SUSPENDED' | 'DISABLED';
+  tradingEnabled?: boolean;
+  maxOrderVolume?: number;
+  maxPositionVolume?: number;
+  marginCallLevel?: number;
+  stopOutLevel?: number;
+  platform?: 'MT5' | 'MT4' | 'PROPRIETARY';
+  reason?: string;
+}
+
 export interface AdminAccountUpdatePayload {
   status?: 'ACTIVE' | 'DISABLED' | 'SUSPENDED' | 'READ_ONLY';
   tradingEnabled?: boolean;

@@ -8,6 +8,7 @@
  */
 
 import { Position, Quote, SymbolConfig, TradingAccount } from '../types/trading';
+import { normalizeAccountStatus } from '../utils/accountStatus';
 
 export class RiskEngine {
   /**
@@ -185,8 +186,18 @@ export class RiskEngine {
     volume: number,
     existingPositionVolume: number = 0
   ): { valid: boolean; reason?: string } {
-    if (account.status !== 'ACTIVE') {
-      return { valid: false, reason: `Account is currently ${account.status}` };
+    const status = normalizeAccountStatus(account.status, 'DISABLED');
+    if (status !== 'ACTIVE') {
+      if (status === 'READ_ONLY') {
+        return { valid: false, reason: 'Trading is disabled for this read-only account' };
+      }
+      if (status === 'SUSPENDED') {
+        return { valid: false, reason: 'Account is suspended' };
+      }
+      if (status === 'DISABLED') {
+        return { valid: false, reason: 'Trading account is disabled' };
+      }
+      return { valid: false, reason: 'Account state is invalid' };
     }
 
     if (account.tradingEnabled === false) {
@@ -251,7 +262,7 @@ export class RiskEngine {
     if (requiredMargin > account.freeMargin) {
       return {
         valid: false,
-        reason: `Insufficient Free Margin: Required $${requiredMargin.toFixed(2)}, Available $${account.freeMargin.toFixed(2)}`,
+        reason: `Insufficient margin: Insufficient Free Margin (Required $${requiredMargin.toFixed(2)}, Available $${account.freeMargin.toFixed(2)})`,
       };
     }
 

@@ -18,6 +18,7 @@ import { PostgresAuditRepository } from '../repositories/PostgresAuditRepository
 import { PostgresSpreadRepository } from '../repositories/PostgresSpreadRepository';
 import { PostgresSymbolRepository } from '../repositories/PostgresSymbolRepository';
 import {
+  AdminAccountCreatePayload,
   AdminAccountUpdatePayload,
   AdminAuditEntry,
   AdminContext,
@@ -27,6 +28,7 @@ import {
   UpdateSpreadConfigPayload,
 } from '../types/admin';
 import { TradingAccount } from '../types/trading';
+import { normalizeAccountStatus, isValidAccountStatus } from '../utils/accountStatus';
 
 export class TradingAdminService {
   constructor(
@@ -86,6 +88,136 @@ export class TradingAdminService {
     return undefined;
   }
 
+  public async createAccount(
+    tenantId: string,
+    payload: AdminAccountCreatePayload,
+    admin: AdminContext
+  ): Promise<TradingAccount> {
+    const effectiveTenant = tenantId || 'tenant_default';
+
+    // 1. Validate / Determine Account Number
+    let accNum: string;
+    if (payload.accountNumber !== undefined && payload.accountNumber !== null) {
+      accNum = String(payload.accountNumber).trim();
+      if (!accNum) {
+        throw new Error('accountNumber cannot be empty if specified');
+      }
+      const existing = await this.runtime.persistence.accounts.getAccount(accNum) ||
+                       this.runtime.accounts.getAccount(accNum);
+      if (existing) {
+        throw new Error(`Account number '${accNum}' already exists`);
+      }
+    } else {
+      // Auto-generate a unique 6-digit account number
+      let candidate = '';
+      let isUnique = false;
+      let attempts = 0;
+      while (!isUnique && attempts < 20) {
+        attempts++;
+        candidate = String(Math.floor(100000 + Math.random() * 900000));
+        const existing = await this.runtime.persistence.accounts.getAccount(candidate) ||
+                         this.runtime.accounts.getAccount(candidate);
+        if (!existing) {
+          isUnique = true;
+        }
+      }
+      if (!isUnique) {
+        candidate = `ACC-${Date.now().toString().slice(-6)}`;
+      }
+      accNum = candidate;
+    }
+
+    // 2. Validate Status
+    let status: 'ACTIVE' | 'READ_ONLY' | 'SUSPENDED' | 'DISABLED' = 'ACTIVE';
+    if (payload.status !== undefined && payload.status !== null) {
+      if (!isValidAccountStatus(payload.status)) {
+        throw new Error(`Invalid account status '${payload.status}'. Must be one of: ACTIVE, READ_ONLY, SUSPENDED, DISABLED`);
+      }
+      status = normalizeAccountStatus(payload.status, 'ACTIVE');
+    }
+
+    // 3. Validate Leverage
+    const leverage = payload.leverage !== undefined ? payload.leverage : 100;
+    if (typeof leverage !== 'number' || leverage <= 0 || leverage > 1000) {
+      throw new Error('Invalid leverage: must be between 1 and 1000');
+    }
+
+    // 4. Validate Initial Balance
+    const initialBalance = payload.initialBalance !== undefined ? Number(payload.initialBalance) : 0.00;
+    if (isNaN(initialBalance) || initialBalance < 0) {
+      throw new Error('Invalid initialBalance: must be a non-negative number');
+    }
+
+    // 5. Volume Limits Validation
+    if (payload.maxOrderVolume !== undefined && payload.maxOrderVolume !== null) {
+      if (typeof payload.maxOrderVolume !== 'number' || payload.maxOrderVolume <= 0) {
+        throw new Error('Invalid maxOrderVolume: must be greater than zero');
+      }
+    }
+    if (payload.maxPositionVolume !== undefined && payload.maxPositionVolume !== null) {
+      if (typeof payload.maxPositionVolume !== 'number' || payload.maxPositionVolume <= 0) {
+        throw new Error('Invalid maxPositionVolume: must be greater than zero');
+      }
+    }
+
+    const id = `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = Date.now();
+
+    const account: TradingAccount = {
+      id,
+      tenantId: effectiveTenant,
+      clientId: payload.clientId !== undefined ? payload.clientId : undefined,
+      accountNumber: accNum,
+      platform: payload.platform || 'MT5',
+      currency: payload.currency || 'USD',
+      accountType: payload.accountType || 'LIVE',
+      sessionMode: 'EXTERNAL',
+      leverage,
+      balance: initialBalance,
+      equity: initialBalance,
+      usedMargin: 0.00,
+      freeMargin: initialBalance,
+      marginLevel: 0,
+      marginCallLevel: payload.marginCallLevel || 100,
+      stopOutLevel: payload.stopOutLevel || 50,
+      status,
+      tradingEnabled: payload.tradingEnabled !== undefined ? payload.tradingEnabled : true,
+      maxOrderVolume: payload.maxOrderVolume,
+      maxPositionVolume: payload.maxPositionVolume,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // Persist to PostgreSQL repository
+    await this.runtime.persistence.accounts.updateAccount(account);
+
+    // Initial Ledger Deposit if initialBalance > 0
+    if (initialBalance > 0) {
+      const desc = `Initial provisioning balance by Manager ${admin.adminId}`;
+      await this.runtime.persistence.accounts.createLedgerEntry(account.id, 'DEPOSIT', initialBalance, initialBalance, desc);
+      this.runtime.accounts.createLedgerEntry(account.id, 'DEPOSIT', initialBalance, initialBalance, desc);
+    }
+
+    // Hydrate into runtime memory
+    this.runtime.accounts.updateAccount(account);
+
+    // Record audit log
+    const auditEntry: AdminAuditEntry = {
+      id: `aud_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      tenantId: effectiveTenant,
+      adminId: admin.adminId,
+      action: 'CREATE_ACCOUNT',
+      resourceType: 'ACCOUNT',
+      resourceId: account.id,
+      newState: account,
+      reason: payload.reason || 'Manager account provisioning',
+      timestamp: Date.now(),
+    };
+    await this.auditRepo.saveAuditEntry(auditEntry);
+
+    return account;
+  }
+
   public async updateAccount(
     tenantId: string,
     accountId: string,
@@ -117,6 +249,13 @@ export class TradingAdminService {
       }
     }
 
+    // Validation: Status Normalization
+    if (payload.status !== undefined && payload.status !== null) {
+      if (!isValidAccountStatus(payload.status)) {
+        throw new Error(`Invalid account status '${payload.status}'. Must be one of: ACTIVE, READ_ONLY, SUSPENDED, DISABLED`);
+      }
+    }
+
     const prevState = {
       status: account.status,
       tradingEnabled: account.tradingEnabled !== undefined ? account.tradingEnabled : true,
@@ -126,7 +265,7 @@ export class TradingAdminService {
     };
 
     // Apply updates
-    if (payload.status !== undefined) account.status = payload.status;
+    if (payload.status !== undefined) account.status = normalizeAccountStatus(payload.status, 'DISABLED');
     if (payload.tradingEnabled !== undefined) account.tradingEnabled = payload.tradingEnabled;
     if (payload.leverage !== undefined) account.leverage = payload.leverage;
     if (payload.maxOrderVolume !== undefined) account.maxOrderVolume = payload.maxOrderVolume;
@@ -165,6 +304,60 @@ export class TradingAdminService {
     this.runtime.sendToAccount(account.id, 'ACCOUNT_STATE', { account });
 
     return account;
+  }
+
+  public async deleteAccount(
+    tenantId: string,
+    accountId: string,
+    admin: AdminContext
+  ): Promise<{ success: boolean; message: string }> {
+    const account = await this.getAccount(tenantId, accountId);
+    if (!account) {
+      throw new Error(`Account '${accountId}' not found in tenant '${tenantId}'`);
+    }
+
+    const eligibility = this.runtime.persistence?.accounts?.canDeleteAccount
+      ? await this.runtime.persistence.accounts.canDeleteAccount(tenantId, account.id)
+      : { eligible: true };
+
+    if (!eligibility.eligible) {
+      const rejectAudit: AdminAuditEntry = {
+        id: `aud_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        tenantId,
+        adminId: admin.adminId,
+        action: 'DELETE_ACCOUNT_REJECTED',
+        resourceType: 'ACCOUNT',
+        resourceId: account.id,
+        reason: eligibility.reason || 'Cannot delete account with existing trading history',
+        timestamp: Date.now(),
+      };
+      await this.auditRepo.saveAuditEntry(rejectAudit);
+
+      throw new Error(eligibility.reason || 'Cannot delete account with existing trading history or financial transactions. Please set account status to DISABLED.');
+    }
+
+    // Perform hard delete
+    if (this.runtime.persistence?.accounts?.deleteAccount) {
+      await this.runtime.persistence.accounts.deleteAccount(tenantId, account.id);
+    }
+    if (this.runtime.accounts.deleteAccount) {
+      this.runtime.accounts.deleteAccount(account.id);
+    }
+
+    const deleteAudit: AdminAuditEntry = {
+      id: `aud_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      tenantId,
+      adminId: admin.adminId,
+      action: 'DELETE_ACCOUNT',
+      resourceType: 'ACCOUNT',
+      resourceId: account.id,
+      prevState: account,
+      reason: 'Manager hard deletion of eligible unused account',
+      timestamp: Date.now(),
+    };
+    await this.auditRepo.saveAuditEntry(deleteAudit);
+
+    return { success: true, message: 'Account deleted successfully' };
   }
 
   // ---------------------------------------------------------------------------

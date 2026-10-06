@@ -165,6 +165,7 @@ export const useTradingStore = create<TradingState>((set, get) => {
     handleServerError: (err: ErrorPayload) => {
       const isExpired = err.code === 'SESSION_EXPIRED';
       const isUnauthorized = err.code === 'UNAUTHORIZED' || err.code === 'MISSING_CREDENTIAL';
+      const isNotProvisioned = err.code === 'ACCOUNT_NOT_PROVISIONED';
 
       set((state) => {
         let nextAuthState = state.sessionAuthState;
@@ -173,6 +174,9 @@ export const useTradingStore = create<TradingState>((set, get) => {
         if (isExpired) {
           nextAuthState = 'EXTERNAL_EXPIRED';
           errorMessage = err.message || 'CRM Launch Session Expired. Please relaunch from your CRM Client Panel.';
+        } else if (isNotProvisioned) {
+          nextAuthState = 'EXTERNAL_ERROR';
+          errorMessage = err.message || 'Trading account has not been provisioned by broker management.';
         } else if (isUnauthorized) {
           nextAuthState = 'EXTERNAL_ERROR';
           errorMessage = err.message || 'CRM Launch Authentication Failed. Invalid or unverified launch token.';

@@ -9,11 +9,14 @@
 import { IDatabaseClient } from '../db/DatabaseClient';
 import { ExternalSessionTokenPayload, LedgerEntry, TradingAccount } from '../types/trading';
 import { parseDbTimestamp, toDbTimestamp, SchemaInspector } from '../db/timestampUtils';
+import { normalizeAccountStatus } from '../utils/accountStatus';
 
 export interface IAccountRepository {
   getAccount(idOrNumber: string): Promise<TradingAccount | undefined> | TradingAccount | undefined;
   getAllAccounts(): Promise<TradingAccount[]> | TradingAccount[];
   updateAccount(account: TradingAccount): Promise<void> | void;
+  deleteAccount?(tenantId: string, accountId: string): Promise<void> | void;
+  canDeleteAccount?(tenantId: string, accountId: string): Promise<{ eligible: boolean; reason?: string }> | { eligible: boolean; reason?: string };
   createLedgerEntry(
     accountId: string,
     type: LedgerEntry['type'],
@@ -58,7 +61,7 @@ export class PostgresAccountRepository implements IAccountRepository {
       marginLevel: Number(row.margin_level),
       marginCallLevel: Number(row.margin_call_level),
       stopOutLevel: Number(row.stop_out_level),
-      status: row.status,
+      status: normalizeAccountStatus(row.status, 'DISABLED'),
       tradingEnabled: row.trading_enabled !== undefined && row.trading_enabled !== null ? Boolean(row.trading_enabled) : true,
       maxOrderVolume: row.max_order_volume ? Number(row.max_order_volume) : undefined,
       maxPositionVolume: row.max_position_volume ? Number(row.max_position_volume) : undefined,
@@ -164,6 +167,7 @@ export class PostgresAccountRepository implements IAccountRepository {
 
   public async updateAccount(account: TradingAccount): Promise<void> {
     const tsUpdatedAt = toDbTimestamp(undefined, 'trading_accounts', 'updated_at');
+    const normalizedStatus = normalizeAccountStatus(account.status, 'ACTIVE');
     const updateRes = await this.db.query(
       `UPDATE trading_accounts SET
         tenant_id = $1,
@@ -203,7 +207,7 @@ export class PostgresAccountRepository implements IAccountRepository {
         account.marginLevel || 0,
         account.marginCallLevel || 100,
         account.stopOutLevel || 50,
-        account.status || 'ACTIVE',
+        normalizedStatus,
         account.tradingEnabled !== undefined ? account.tradingEnabled : true,
         account.maxOrderVolume ?? null,
         account.maxPositionVolume ?? null,
@@ -249,7 +253,7 @@ export class PostgresAccountRepository implements IAccountRepository {
             account.marginLevel || 0,
             account.marginCallLevel || 100,
             account.stopOutLevel || 50,
-            account.status || 'ACTIVE',
+            normalizedStatus,
             account.tradingEnabled !== undefined ? account.tradingEnabled : true,
             account.maxOrderVolume ?? null,
             account.maxPositionVolume ?? null,
@@ -270,6 +274,9 @@ export class PostgresAccountRepository implements IAccountRepository {
             balance = EXCLUDED.balance,
             equity = EXCLUDED.equity,
             free_margin = EXCLUDED.free_margin,
+            status = EXCLUDED.status,
+            trading_enabled = EXCLUDED.trading_enabled,
+            leverage = EXCLUDED.leverage,
             updated_at = EXCLUDED.updated_at;`,
           [
             account.id,
@@ -288,7 +295,7 @@ export class PostgresAccountRepository implements IAccountRepository {
             account.marginLevel || 0,
             account.marginCallLevel || 100,
             account.stopOutLevel || 50,
-            account.status || 'ACTIVE',
+            normalizedStatus,
             account.tradingEnabled !== undefined ? account.tradingEnabled : true,
             account.maxOrderVolume ?? null,
             account.maxPositionVolume ?? null,
@@ -515,5 +522,55 @@ export class PostgresAccountRepository implements IAccountRepository {
     );
 
     return resetAcc;
+  }
+
+  public async canDeleteAccount(tenantId: string, accountId: string): Promise<{ eligible: boolean; reason?: string }> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(accountId);
+    
+    // 1. Check orders
+    const orderSql = isUuid
+      ? `SELECT COUNT(*)::int as count FROM trading_orders WHERE tenant_id = $1 AND (account_id = $2::uuid OR account_id = $2);`
+      : `SELECT COUNT(*)::int as count FROM trading_orders WHERE tenant_id = $1 AND account_id = $2;`;
+    const orderRes = await this.db.query(orderSql, [tenantId, accountId]);
+    if (orderRes.rows[0]?.count > 0) {
+      return { eligible: false, reason: 'Cannot delete account with existing trading history or financial transactions. Please set account status to DISABLED.' };
+    }
+
+    // 2. Check positions
+    const posSql = isUuid
+      ? `SELECT COUNT(*)::int as count FROM trading_positions WHERE tenant_id = $1 AND (account_id = $2::uuid OR account_id = $2);`
+      : `SELECT COUNT(*)::int as count FROM trading_positions WHERE tenant_id = $1 AND account_id = $2;`;
+    const posRes = await this.db.query(posSql, [tenantId, accountId]);
+    if (posRes.rows[0]?.count > 0) {
+      return { eligible: false, reason: 'Cannot delete account with existing trading history or financial transactions. Please set account status to DISABLED.' };
+    }
+
+    // 3. Check executions
+    const execSql = isUuid
+      ? `SELECT COUNT(*)::int as count FROM trading_executions WHERE tenant_id = $1 AND (account_id = $2::uuid OR account_id = $2);`
+      : `SELECT COUNT(*)::int as count FROM trading_executions WHERE tenant_id = $1 AND account_id = $2;`;
+    const execRes = await this.db.query(execSql, [tenantId, accountId]);
+    if (execRes.rows[0]?.count > 0) {
+      return { eligible: false, reason: 'Cannot delete account with existing trading history or financial transactions. Please set account status to DISABLED.' };
+    }
+
+    // 4. Check ledger entries
+    const ledgerSql = isUuid
+      ? `SELECT COUNT(*)::int as count FROM trading_ledger WHERE tenant_id = $1 AND (account_id = $2::uuid OR account_id = $2);`
+      : `SELECT COUNT(*)::int as count FROM trading_ledger WHERE tenant_id = $1 AND account_id = $2;`;
+    const ledgerRes = await this.db.query(ledgerSql, [tenantId, accountId]);
+    if (ledgerRes.rows[0]?.count > 0) {
+      return { eligible: false, reason: 'Cannot delete account with existing trading history or financial transactions. Please set account status to DISABLED.' };
+    }
+
+    return { eligible: true };
+  }
+
+  public async deleteAccount(tenantId: string, accountId: string): Promise<void> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(accountId);
+    const sql = isUuid
+      ? `DELETE FROM trading_accounts WHERE tenant_id = $1 AND (id = $2::uuid OR id = $2);`
+      : `DELETE FROM trading_accounts WHERE tenant_id = $1 AND id = $2;`;
+    await this.db.query(sql, [tenantId, accountId]);
   }
 }

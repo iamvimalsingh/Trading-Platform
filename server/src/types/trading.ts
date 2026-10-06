@@ -179,7 +179,7 @@ export interface TradingAccount {
   tradingEnabled?: boolean;    // Explicit Admin control over trading permission
   maxOrderVolume?: number;    // Account-level max volume per single order
   maxPositionVolume?: number; // Account-level max aggregate open volume
-  clientId?: string;           // External CRM Client ID
+  clientId?: string | null;   // External CRM Client ID (null for standalone accounts)
   platform?: 'MT5' | 'MT4' | 'PROPRIETARY';
   sessionMode?: SessionMode;   // 'DEMO' or 'EXTERNAL'
   createdAt?: number;

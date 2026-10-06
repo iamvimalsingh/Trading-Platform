@@ -38,6 +38,17 @@ export function createTradingAdminRouter(adminService: TradingAdminService): Rou
   // 1. ACCOUNT ADMIN CONTROLS
   // ---------------------------------------------------------------------------
 
+  // POST /api/admin/trading/accounts
+  router.post('/accounts', async (req: Request, res: Response) => {
+    try {
+      const ctx = getContext(req);
+      const created = await adminService.createAccount(ctx.tenantId, req.body, ctx);
+      res.status(201).json(created);
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'Failed to provision account' });
+    }
+  });
+
   // GET /api/admin/trading/accounts/:id
   router.get('/accounts/:id', async (req: Request, res: Response) => {
     try {
@@ -62,6 +73,19 @@ export function createTradingAdminRouter(adminService: TradingAdminService): Rou
     } catch (err: any) {
       const isNotFound = err?.message?.includes('not found');
       res.status(isNotFound ? 404 : 400).json({ error: err?.message || 'Failed to update account' });
+    }
+  });
+
+  // DELETE /api/admin/trading/accounts/:id
+  router.delete('/accounts/:id', async (req: Request, res: Response) => {
+    try {
+      const ctx = getContext(req);
+      const result = await adminService.deleteAccount(ctx.tenantId, req.params.id, ctx);
+      res.json(result);
+    } catch (err: any) {
+      const isNotFound = err?.message?.includes('not found');
+      const isBlocked = err?.message?.includes('Cannot delete');
+      res.status(isNotFound ? 404 : isBlocked ? 409 : 400).json({ error: err?.message || 'Failed to delete account' });
     }
   });
 

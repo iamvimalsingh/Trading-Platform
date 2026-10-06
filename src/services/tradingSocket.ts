@@ -627,7 +627,7 @@ export class TradingSocketClient {
 
       case 'ERROR': {
         const payload = envelope.payload as ErrorPayload;
-        if (payload && (payload.code === 'SESSION_EXPIRED' || payload.code === 'UNAUTHORIZED')) {
+        if (payload && (payload.code === 'SESSION_EXPIRED' || payload.code === 'UNAUTHORIZED' || payload.code === 'ACCOUNT_NOT_PROVISIONED')) {
           this.authFailureCode = payload.code;
         }
         for (const h of this.errorHandlers) h(payload);

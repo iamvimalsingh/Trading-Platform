@@ -48,6 +48,7 @@ import {
 import { SessionTokenService } from '../auth/SessionTokenService';
 import { DatabaseClient } from '../db/DatabaseClient';
 import { TradingPersistenceService } from './TradingPersistenceService';
+import { normalizeAccountStatus } from '../utils/accountStatus';
 
 export function createDefaultMarketProvider(): IMarketDataProvider {
   const useRealData = process.env.USE_REAL_MARKET_DATA === 'true';
@@ -113,7 +114,7 @@ export interface SessionInitResult {
   success: boolean;
   readyPayload?: SessionReadyPayload;
   error?: string;
-  errorCode?: 'UNAUTHORIZED' | 'SESSION_EXPIRED' | 'MISSING_CREDENTIAL' | 'ACCOUNT_NOT_FOUND' | 'INVALID_SESSION';
+  errorCode?: 'UNAUTHORIZED' | 'SESSION_EXPIRED' | 'MISSING_CREDENTIAL' | 'ACCOUNT_NOT_FOUND' | 'ACCOUNT_NOT_PROVISIONED' | 'INVALID_SESSION';
 }
 
 export class TradingRuntime {
@@ -439,26 +440,45 @@ export class TradingRuntime {
       await this.persistence.init();
 
       try {
+        // Check if account exists under a different tenant for strict multi-tenant security isolation
+        const accountUnderAnyTenant = await this.persistence.accounts.getAccount(claims.accountNumber) ||
+                                     await this.persistence.accounts.getAccount(claims.accountId);
+        if (accountUnderAnyTenant && accountUnderAnyTenant.tenantId && accountUnderAnyTenant.tenantId !== claims.tenantId) {
+          return {
+            success: false,
+            errorCode: 'UNAUTHORIZED',
+            error: `Tenant boundary violation: account belongs to a different tenant`,
+          };
+        }
+
         // Authoritative account resolution from PostgreSQL repository with tenant isolation
         resolvedAccount = await this.persistence.accounts.getExternalAccount(claims.tenantId, claims.accountId, claims.accountNumber);
 
         if (!resolvedAccount) {
-          resolvedAccount = await this.persistence.accounts.provisionExternalAccount(claims);
-        } else {
-          // Client ownership check: Prevent a different client from hijacking an existing account
-          if (resolvedAccount.clientId && resolvedAccount.clientId !== claims.sub) {
-            return {
-              success: false,
-              errorCode: 'UNAUTHORIZED',
-              error: `Selected account '${claims.accountNumber}' belongs to a different client`,
-            };
-          }
-          // Existing account: load it, do not reset balance/positions/orders/ledger
-          resolvedAccount.clientId = claims.sub;
-          if (claims.platform) resolvedAccount.platform = claims.platform;
-          resolvedAccount.sessionMode = 'EXTERNAL';
-          await this.persistence.accounts.updateAccountMetadataOnly(resolvedAccount);
+          return {
+            success: false,
+            errorCode: 'ACCOUNT_NOT_PROVISIONED',
+            error: `Trading account '${claims.accountNumber || claims.accountId}' has not been provisioned by broker management`,
+          };
         }
+
+        // Client ownership check: Prevent a different client from hijacking an existing account
+        if (resolvedAccount.clientId && resolvedAccount.clientId !== claims.sub) {
+          return {
+            success: false,
+            errorCode: 'UNAUTHORIZED',
+            error: `Selected account '${claims.accountNumber}' belongs to a different client`,
+          };
+        }
+
+        // Existing account: synchronize metadata without resetting financial ledger/positions
+        if (!resolvedAccount.clientId) {
+          resolvedAccount.clientId = claims.sub;
+        }
+        if (claims.platform) resolvedAccount.platform = claims.platform;
+        resolvedAccount.sessionMode = 'EXTERNAL';
+        resolvedAccount.status = normalizeAccountStatus(resolvedAccount.status, 'DISABLED');
+        await this.persistence.accounts.updateAccountMetadataOnly(resolvedAccount);
 
         // Recover persisted state from PostgreSQL into runtime in-memory engines
         const hydrated = await this.persistence.hydrateAccountSession(resolvedAccount.id);

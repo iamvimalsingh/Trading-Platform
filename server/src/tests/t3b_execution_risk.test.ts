@@ -183,7 +183,7 @@ async function runT3BTests() {
   const triggeredItem2 = triggerOutcomes2.find((t) => t.triggeredOrder.id === suspendedOrder.id);
 
   assert(
-    !!triggeredItem2 && triggeredItem2.triggeredOrder.status === 'REJECTED' && (triggeredItem2.triggeredOrder.rejectReason?.includes('SUSPENDED') ?? false),
+    !!triggeredItem2 && triggeredItem2.triggeredOrder.status === 'REJECTED' && (triggeredItem2.triggeredOrder.rejectReason?.toLowerCase().includes('suspended') ?? false),
     7,
     'Trigger-time risk revalidation rejects order when account status is SUSPENDED',
     `Reason: ${triggeredItem2?.triggeredOrder.rejectReason}`

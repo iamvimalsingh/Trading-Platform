@@ -7,11 +7,13 @@
  */
 
 import { ExternalSessionTokenPayload, LedgerEntry, TradingAccount } from '../types/trading';
+import { normalizeAccountStatus } from '../utils/accountStatus';
 
 export interface IAccountRepository {
   getAccount(idOrNumber: string): TradingAccount | undefined;
   getAllAccounts(): TradingAccount[];
   updateAccount(account: TradingAccount): void;
+  deleteAccount?(idOrNumber: string): void;
   createLedgerEntry(
     accountId: string,
     type: LedgerEntry['type'],
@@ -169,8 +171,21 @@ export class AccountRegistry implements IAccountRepository {
   }
 
   public updateAccount(account: TradingAccount): void {
-    this.accounts.set(account.id, { ...account });
-    this.accounts.set(account.accountNumber, { ...account });
+    const normalized: TradingAccount = {
+      ...account,
+      status: normalizeAccountStatus(account.status, 'ACTIVE'),
+    };
+    this.accounts.set(normalized.id, { ...normalized });
+    this.accounts.set(normalized.accountNumber, { ...normalized });
+  }
+
+  public deleteAccount(idOrNumber: string): void {
+    const acc = this.accounts.get(idOrNumber);
+    if (acc) {
+      this.accounts.delete(acc.id);
+      this.accounts.delete(acc.accountNumber);
+      this.ledger.delete(acc.id);
+    }
   }
 
   public hydrateAccount(account: TradingAccount, ledger: LedgerEntry[]): void {

@@ -249,7 +249,7 @@ async function runStep5Tests() {
 
     const accStatusDisabled = runtime.accounts.getAccount('acc_demo_1001')!;
     const riskCheckStatus = RiskEngine.validatePreTradeRisk(accStatusDisabled, 10.85, eurusdCfg, 0.01);
-    assert(!riskCheckStatus.valid && riskCheckStatus.reason === 'Account is currently DISABLED', 'S5-15', 'RiskEngine server-side blocks orders when account status is DISABLED');
+    assert(!riskCheckStatus.valid && (riskCheckStatus.reason === 'Trading account is disabled' || riskCheckStatus.reason === 'Account is currently DISABLED'), 'S5-15', 'RiskEngine server-side blocks orders when account status is DISABLED');
 
     // Restore to ACTIVE
     await apiCall('/api/admin/trading/accounts/acc_demo_1001', {

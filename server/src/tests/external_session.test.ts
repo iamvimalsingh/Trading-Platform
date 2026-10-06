@@ -215,6 +215,29 @@ async function runSessionFoundationTests() {
   // -------------------------------------------------------------
   // TEST 5: Valid token with CRM account 57775 resolves authoritatively (Mode B)
   // -------------------------------------------------------------
+  // Under Phase 2 Manager Provisioning Contract: pre-provision accounts in DB before client SSO access
+  await runtime.persistence.init();
+  await runtime.persistence.accounts.updateAccount({
+    id: validClaims.accountId,
+    tenantId: validClaims.tenantId,
+    clientId: validClaims.sub,
+    accountNumber: validClaims.accountNumber,
+    platform: validClaims.platform,
+    currency: validClaims.currency,
+    accountType: validClaims.accountType,
+    sessionMode: 'EXTERNAL',
+    leverage: validClaims.leverage,
+    balance: validClaims.initialBalance,
+    equity: validClaims.initialBalance,
+    usedMargin: 0.00,
+    freeMargin: validClaims.initialBalance,
+    marginLevel: 0,
+    marginCallLevel: 100,
+    stopOutLevel: 50,
+    status: 'ACTIVE',
+    tradingEnabled: true,
+  });
+
   const clientValid = await connectHelper();
   clientValid.sendEnvelope('SESSION_INIT', { mode: 'EXTERNAL', token: validToken }, 'req_valid_57775');
   const validReadyMsg = await clientValid.waitForMessage('SESSION_READY', 'req_valid_57775');
@@ -305,6 +328,27 @@ async function runSessionFoundationTests() {
   // -------------------------------------------------------------
   // TEST 9: Query Parameter Handshake (?token=...) works automatically
   // -------------------------------------------------------------
+  await runtime.persistence.accounts.updateAccount({
+    id: 'acc_crm_88990',
+    tenantId: validClaims.tenantId,
+    clientId: validClaims.sub,
+    accountNumber: '88990',
+    platform: 'MT5',
+    currency: 'USD',
+    accountType: 'LIVE',
+    sessionMode: 'EXTERNAL',
+    leverage: 100,
+    balance: 50000.00,
+    equity: 50000.00,
+    usedMargin: 0.00,
+    freeMargin: 50000.00,
+    marginLevel: 0,
+    marginCallLevel: 100,
+    stopOutLevel: 50,
+    status: 'ACTIVE',
+    tradingEnabled: true,
+  });
+
   const queryParamToken = SessionTokenService.createLaunchToken(
     {
       ...validClaims,
@@ -331,6 +375,27 @@ async function runSessionFoundationTests() {
   // -------------------------------------------------------------
   // TEST 10: External Account 57575 First-Time Provisioning & Re-Login State Preservation
   // -------------------------------------------------------------
+  await runtime.persistence.accounts.updateAccount({
+    id: 'acc_crm_uuid_57575',
+    tenantId: 'tenant_default',
+    clientId: 'client_A',
+    accountNumber: '57575',
+    platform: 'MT5',
+    currency: 'USD',
+    accountType: 'LIVE',
+    sessionMode: 'EXTERNAL',
+    leverage: 100,
+    balance: 20000.00,
+    equity: 20000.00,
+    usedMargin: 0.00,
+    freeMargin: 20000.00,
+    marginLevel: 0,
+    marginCallLevel: 100,
+    stopOutLevel: 50,
+    status: 'ACTIVE',
+    tradingEnabled: true,
+  });
+
   const token57575 = SessionTokenService.createLaunchToken(
     {
       iss: 'crm-backend',
@@ -372,6 +437,47 @@ async function runSessionFoundationTests() {
   // -------------------------------------------------------------
   // TEST 11: Multi-Account & Multi-Client Isolation (Client A Acc 58120 vs Client B Acc 91342)
   // -------------------------------------------------------------
+  await runtime.persistence.accounts.updateAccount({
+    id: 'acc_crm_uuid_58120',
+    tenantId: 'tenant_default',
+    clientId: 'client_A',
+    accountNumber: '58120',
+    platform: 'MT5',
+    currency: 'USD',
+    accountType: 'LIVE',
+    sessionMode: 'EXTERNAL',
+    leverage: 100,
+    balance: 30000.00,
+    equity: 30000.00,
+    usedMargin: 0.00,
+    freeMargin: 30000.00,
+    marginLevel: 0,
+    marginCallLevel: 100,
+    stopOutLevel: 50,
+    status: 'ACTIVE',
+    tradingEnabled: true,
+  });
+  await runtime.persistence.accounts.updateAccount({
+    id: 'acc_crm_uuid_91342',
+    tenantId: 'tenant_default',
+    clientId: 'client_B',
+    accountNumber: '91342',
+    platform: 'MT5',
+    currency: 'EUR',
+    accountType: 'LIVE',
+    sessionMode: 'EXTERNAL',
+    leverage: 100,
+    balance: 45000.00,
+    equity: 45000.00,
+    usedMargin: 0.00,
+    freeMargin: 45000.00,
+    marginLevel: 0,
+    marginCallLevel: 100,
+    stopOutLevel: 50,
+    status: 'ACTIVE',
+    tradingEnabled: true,
+  });
+
   const token58120 = SessionTokenService.createLaunchToken(
     {
       iss: 'crm-backend',
@@ -426,6 +532,26 @@ async function runSessionFoundationTests() {
   // -------------------------------------------------------------
   // TEST 12: Concurrent First-Time Launches for Generic Account
   // -------------------------------------------------------------
+  await runtime.persistence.accounts.updateAccount({
+    id: 'acc_crm_uuid_concurrent',
+    tenantId: 'tenant_default',
+    clientId: 'client_concurrent',
+    accountNumber: '99887',
+    platform: 'MT5',
+    currency: 'USD',
+    accountType: 'LIVE',
+    sessionMode: 'EXTERNAL',
+    leverage: 100,
+    balance: 15000.00,
+    equity: 15000.00,
+    usedMargin: 0.00,
+    freeMargin: 15000.00,
+    marginLevel: 0,
+    marginCallLevel: 100,
+    stopOutLevel: 50,
+    status: 'ACTIVE',
+    tradingEnabled: true,
+  });
   const tokenConcurrent = SessionTokenService.createLaunchToken(
     {
       iss: 'crm-backend',

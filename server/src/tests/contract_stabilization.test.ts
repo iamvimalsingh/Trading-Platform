@@ -151,6 +151,29 @@ async function runContractTests() {
 
   const validToken = SessionTokenService.createLaunchToken(validClaims, 300, testSecret);
 
+  // Phase 2 Manager Provisioning Contract: Pre-provision account before client WebTrader SSO access
+  await runtime.persistence.init();
+  await runtime.persistence.accounts.updateAccount({
+    id: validClaims.accountId,
+    tenantId: validClaims.tenantId,
+    clientId: validClaims.sub,
+    accountNumber: validClaims.accountNumber,
+    platform: validClaims.platform,
+    currency: validClaims.currency,
+    accountType: validClaims.accountType,
+    sessionMode: 'EXTERNAL',
+    leverage: validClaims.leverage,
+    balance: validClaims.initialBalance,
+    equity: validClaims.initialBalance,
+    usedMargin: 0.00,
+    freeMargin: validClaims.initialBalance,
+    marginLevel: 0,
+    marginCallLevel: 100,
+    stopOutLevel: 50,
+    status: 'ACTIVE',
+    tradingEnabled: true,
+  });
+
   // -------------------------------------------------------------
   // REQ 1: Valid CRM SSO
   // -------------------------------------------------------------
