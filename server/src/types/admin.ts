@@ -55,8 +55,12 @@ export interface AdminAccountCreatePayload {
   accountType?: 'DEMO' | 'LIVE';
   leverage?: number;
   initialBalance?: number;
+  balance?: number;               // Convenient alias for initialBalance
   status?: 'ACTIVE' | 'READ_ONLY' | 'SUSPENDED' | 'DISABLED';
   tradingEnabled?: boolean;
+  tradingPassword?: string;       // Direct trading account password
+  password?: string;              // Convenient alias for tradingPassword
+  idempotencyKey?: string;        // Idempotent provisioning key
   maxOrderVolume?: number;
   maxPositionVolume?: number;
   marginCallLevel?: number;
@@ -66,11 +70,20 @@ export interface AdminAccountCreatePayload {
 }
 
 export interface AdminAccountUpdatePayload {
+  clientId?: string | null;
   status?: 'ACTIVE' | 'DISABLED' | 'SUSPENDED' | 'READ_ONLY';
   tradingEnabled?: boolean;
   leverage?: number;
   maxOrderVolume?: number;
   maxPositionVolume?: number;
+  tradingPassword?: string;
+  password?: string;
+  reason?: string;
+}
+
+export interface AdminPasswordResetPayload {
+  tradingPassword?: string;
+  password?: string;
   reason?: string;
 }
 

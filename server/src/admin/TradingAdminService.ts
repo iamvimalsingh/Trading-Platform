@@ -22,6 +22,7 @@ import {
   AdminAccountUpdatePayload,
   AdminAuditEntry,
   AdminContext,
+  AdminPasswordResetPayload,
   AdminSymbolUpdatePayload,
   CreateSpreadConfigPayload,
   SpreadConfigRecord,
@@ -29,6 +30,7 @@ import {
 } from '../types/admin';
 import { TradingAccount } from '../types/trading';
 import { normalizeAccountStatus, isValidAccountStatus } from '../utils/accountStatus';
+import { hashTradingPassword } from '../utils/passwordUtils';
 
 export class TradingAdminService {
   constructor(
@@ -38,6 +40,17 @@ export class TradingAdminService {
     public readonly symbolRepo: PostgresSymbolRepository,
     public readonly spreadPolicy: AdminSpreadPricingPolicy
   ) {}
+
+  /**
+   * Strips sensitive credentials (password, passwordHash) before returning to caller or writing audit logs.
+   */
+  public sanitizeAccount(account?: TradingAccount): TradingAccount | undefined {
+    if (!account) return undefined;
+    const copy = { ...account };
+    delete copy.tradingPassword;
+    delete copy.passwordHash;
+    return copy;
+  }
 
   /**
    * Initializes persistent configurations from PostgreSQL on server startup.
@@ -70,22 +83,26 @@ export class TradingAdminService {
   // 1. ACCOUNT ADMIN CONTROLS
   // ---------------------------------------------------------------------------
 
-  public async getAccount(tenantId: string, accountId: string): Promise<TradingAccount | undefined> {
+  public async getAccount(tenantId: string, accountId: string, sanitize: boolean = true): Promise<TradingAccount | undefined> {
     const acc = this.runtime.accounts.getAccount(accountId);
     if (acc) {
       // Tenant Isolation Check
       if (acc.tenantId && acc.tenantId !== tenantId) {
         return undefined; // Hide account from other tenants
       }
-      return acc;
+      return sanitize ? this.sanitizeAccount(acc) : acc;
     }
 
     // Fallback to database
     const dbAcc = await this.runtime.persistence.accounts.getAccount(accountId);
     if (dbAcc && dbAcc.tenantId === tenantId) {
-      return dbAcc;
+      return sanitize ? this.sanitizeAccount(dbAcc) : dbAcc;
     }
     return undefined;
+  }
+
+  public async getRawAccount(tenantId: string, accountId: string): Promise<TradingAccount | undefined> {
+    return this.getAccount(tenantId, accountId, false);
   }
 
   public async createAccount(
@@ -95,7 +112,7 @@ export class TradingAdminService {
   ): Promise<TradingAccount> {
     const effectiveTenant = tenantId || 'tenant_default';
 
-    // 1. Validate / Determine Account Number
+    // 1. Validate / Determine Account Number & Idempotency Check
     let accNum: string;
     if (payload.accountNumber !== undefined && payload.accountNumber !== null) {
       accNum = String(payload.accountNumber).trim();
@@ -105,6 +122,14 @@ export class TradingAdminService {
       const existing = await this.runtime.persistence.accounts.getAccount(accNum) ||
                        this.runtime.accounts.getAccount(accNum);
       if (existing) {
+        // Idempotency: If existing account belongs to same tenant and matches retry criteria
+        if (existing.tenantId === effectiveTenant) {
+          const isMatchingRetry = !!payload.idempotencyKey ||
+            (payload.clientId !== undefined && existing.clientId === (payload.clientId || undefined));
+          if (isMatchingRetry) {
+            return this.sanitizeAccount(existing)!;
+          }
+        }
         throw new Error(`Account number '${accNum}' already exists`);
       }
     } else {
@@ -143,7 +168,8 @@ export class TradingAdminService {
     }
 
     // 4. Validate Initial Balance
-    const initialBalance = payload.initialBalance !== undefined ? Number(payload.initialBalance) : 0.00;
+    const rawBal = payload.initialBalance !== undefined ? payload.initialBalance : payload.balance;
+    const initialBalance = rawBal !== undefined ? Number(rawBal) : 0.00;
     if (isNaN(initialBalance) || initialBalance < 0) {
       throw new Error('Invalid initialBalance: must be a non-negative number');
     }
@@ -158,6 +184,20 @@ export class TradingAdminService {
       if (typeof payload.maxPositionVolume !== 'number' || payload.maxPositionVolume <= 0) {
         throw new Error('Invalid maxPositionVolume: must be greater than zero');
       }
+    }
+
+    // 6. Handle Password Provisioning
+    let passwordHash: string | undefined;
+    const rawPassword = payload.tradingPassword || payload.password;
+    if (rawPassword !== undefined && rawPassword !== null) {
+      const trimmedPass = String(rawPassword).trim();
+      if (!trimmedPass) {
+        throw new Error('Trading password cannot be empty if specified');
+      }
+      if (trimmedPass.length < 4) {
+        throw new Error('Trading password must be at least 4 characters');
+      }
+      passwordHash = hashTradingPassword(trimmedPass);
     }
 
     const id = `acc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -184,6 +224,7 @@ export class TradingAdminService {
       tradingEnabled: payload.tradingEnabled !== undefined ? payload.tradingEnabled : true,
       maxOrderVolume: payload.maxOrderVolume,
       maxPositionVolume: payload.maxPositionVolume,
+      passwordHash,
       createdAt: now,
       updatedAt: now,
     };
@@ -201,7 +242,7 @@ export class TradingAdminService {
     // Hydrate into runtime memory
     this.runtime.accounts.updateAccount(account);
 
-    // Record audit log
+    // Record audit log (strictly sanitized)
     const auditEntry: AdminAuditEntry = {
       id: `aud_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       tenantId: effectiveTenant,
@@ -209,13 +250,13 @@ export class TradingAdminService {
       action: 'CREATE_ACCOUNT',
       resourceType: 'ACCOUNT',
       resourceId: account.id,
-      newState: account,
+      newState: this.sanitizeAccount(account),
       reason: payload.reason || 'Manager account provisioning',
       timestamp: Date.now(),
     };
     await this.auditRepo.saveAuditEntry(auditEntry);
 
-    return account;
+    return this.sanitizeAccount(account)!;
   }
 
   public async updateAccount(
@@ -224,7 +265,7 @@ export class TradingAdminService {
     payload: AdminAccountUpdatePayload,
     admin: AdminContext
   ): Promise<TradingAccount> {
-    const account = await this.getAccount(tenantId, accountId);
+    const account = await this.getRawAccount(tenantId, accountId);
     if (!account) {
       throw new Error(`Account '${accountId}' not found in tenant '${tenantId}'`);
     }
@@ -256,10 +297,25 @@ export class TradingAdminService {
       }
     }
 
+    // Optional Password Update
+    const rawPassword = payload.tradingPassword || payload.password;
+    if (rawPassword !== undefined && rawPassword !== null) {
+      const trimmedPass = String(rawPassword).trim();
+      if (!trimmedPass) {
+        throw new Error('Trading password cannot be empty if specified');
+      }
+      if (trimmedPass.length < 4) {
+        throw new Error('Trading password must be at least 4 characters');
+      }
+      account.passwordHash = hashTradingPassword(trimmedPass);
+      delete account.tradingPassword;
+    }
+
     const prevState = {
       status: account.status,
       tradingEnabled: account.tradingEnabled !== undefined ? account.tradingEnabled : true,
       leverage: account.leverage,
+      clientId: account.clientId,
       maxOrderVolume: account.maxOrderVolume,
       maxPositionVolume: account.maxPositionVolume,
     };
@@ -268,13 +324,16 @@ export class TradingAdminService {
     if (payload.status !== undefined) account.status = normalizeAccountStatus(payload.status, 'DISABLED');
     if (payload.tradingEnabled !== undefined) account.tradingEnabled = payload.tradingEnabled;
     if (payload.leverage !== undefined) account.leverage = payload.leverage;
+    if (payload.clientId !== undefined) account.clientId = payload.clientId || undefined;
     if (payload.maxOrderVolume !== undefined) account.maxOrderVolume = payload.maxOrderVolume;
     if (payload.maxPositionVolume !== undefined) account.maxPositionVolume = payload.maxPositionVolume;
+    account.updatedAt = Date.now();
 
     const newState = {
       status: account.status,
       tradingEnabled: account.tradingEnabled,
       leverage: account.leverage,
+      clientId: account.clientId,
       maxOrderVolume: account.maxOrderVolume,
       maxPositionVolume: account.maxPositionVolume,
     };
@@ -301,9 +360,70 @@ export class TradingAdminService {
     await this.runtime.persistence.accounts.updateAccount(account);
 
     // Notify connected client sessions via WebSocket
-    this.runtime.sendToAccount(account.id, 'ACCOUNT_STATE', { account });
+    this.runtime.sendToAccount(account.id, 'ACCOUNT_STATE', { account: this.sanitizeAccount(account) });
 
-    return account;
+    return this.sanitizeAccount(account)!;
+  }
+
+  public async resetAccountPassword(
+    tenantId: string,
+    accountId: string,
+    payload: AdminPasswordResetPayload,
+    admin: AdminContext
+  ): Promise<{ success: boolean; accountId: string; accountNumber: string; message: string }> {
+    const account = await this.getRawAccount(tenantId, accountId);
+    if (!account) {
+      throw new Error(`Account '${accountId}' not found in tenant '${tenantId}'`);
+    }
+
+    const rawPass = payload.tradingPassword || payload.password;
+    if (!rawPass || typeof rawPass !== 'string') {
+      throw new Error('New password is required');
+    }
+    const trimmedPass = rawPass.trim();
+    if (!trimmedPass) {
+      throw new Error('New password cannot be empty');
+    }
+    if (trimmedPass.length < 4) {
+      throw new Error('New password must be at least 4 characters');
+    }
+
+    const newHash = hashTradingPassword(trimmedPass);
+    account.passwordHash = newHash;
+    delete account.tradingPassword;
+    account.updatedAt = Date.now();
+
+    // Persist to PostgreSQL
+    if (this.runtime.persistence?.accounts?.setPasswordHash) {
+      await this.runtime.persistence.accounts.setPasswordHash(account.id, newHash);
+    } else {
+      await this.runtime.persistence.accounts.updateAccount(account);
+    }
+
+    // Update in-memory runtime
+    this.runtime.accounts.updateAccount(account);
+
+    // Record audit log
+    const auditEntry: AdminAuditEntry = {
+      id: `aud_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      tenantId,
+      adminId: admin.adminId,
+      action: 'RESET_PASSWORD',
+      resourceType: 'ACCOUNT',
+      resourceId: account.id,
+      prevState: { passwordUpdated: false },
+      newState: { passwordUpdated: true },
+      reason: payload.reason || 'Manager administrative password reset',
+      timestamp: Date.now(),
+    };
+    await this.auditRepo.saveAuditEntry(auditEntry);
+
+    return {
+      success: true,
+      accountId: account.id,
+      accountNumber: account.accountNumber,
+      message: 'Trading password successfully reset',
+    };
   }
 
   public async deleteAccount(

@@ -18,32 +18,8 @@ import { OrderEngine } from '../trading/OrderEngine';
 import { PositionEngine } from '../trading/PositionEngine';
 import { RiskEngine } from '../trading/RiskEngine';
 import { ExecutionRegistry } from '../trading/ExecutionRegistry';
-import crypto from 'node:crypto';
-
-export function verifyTradingPassword(providedPassword: string, storedCredential?: string): boolean {
-  if (!providedPassword || !storedCredential) return false;
-  // If stored as salt:hash
-  if (storedCredential.includes(':')) {
-    try {
-      const [salt, key] = storedCredential.split(':');
-      if (!salt || !key) return false;
-      const keyBuffer = Buffer.from(key, 'hex');
-      const derivedKey = crypto.scryptSync(providedPassword, salt, 64);
-      return crypto.timingSafeEqual(keyBuffer, derivedKey);
-    } catch {
-      return false;
-    }
-  }
-  // Constant-time comparison for plain string credentials
-  try {
-    const a = Buffer.from(providedPassword);
-    const b = Buffer.from(storedCredential);
-    if (a.length !== b.length) return false;
-    return crypto.timingSafeEqual(a, b);
-  } catch {
-    return providedPassword === storedCredential;
-  }
-}
+import { hashTradingPassword, verifyTradingPassword } from '../utils/passwordUtils';
+export { hashTradingPassword, verifyTradingPassword };
 import {
   CancelOrderRequest,
   Execution,

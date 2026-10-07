@@ -80,6 +80,14 @@ export class PostgresAccountRepository implements IAccountRepository {
     );
   }
 
+  public async setPasswordHash(idOrNumber: string, hash: string): Promise<void> {
+    if (!idOrNumber || !hash) return;
+    await this.db.query(
+      `UPDATE trading_accounts SET password_hash = $1, trading_password = NULL, updated_at = NOW() WHERE id = $2 OR account_number = $2;`,
+      [hash, idOrNumber]
+    );
+  }
+
   public async getAccount(idOrNumber: string): Promise<TradingAccount | undefined> {
     if (!idOrNumber || typeof idOrNumber !== 'string') return undefined;
     const trimmed = idOrNumber.trim();
@@ -199,8 +207,10 @@ export class PostgresAccountRepository implements IAccountRepository {
         trading_enabled = $17,
         max_order_volume = $18,
         max_position_volume = $19,
-        updated_at = $20
-      WHERE id = $21;`,
+        password_hash = COALESCE($20, password_hash),
+        trading_password = COALESCE($21, trading_password),
+        updated_at = $22
+      WHERE id = $23;`,
       [
         account.tenantId || 'tenant_default',
         account.clientId || null,
@@ -221,6 +231,8 @@ export class PostgresAccountRepository implements IAccountRepository {
         account.tradingEnabled !== undefined ? account.tradingEnabled : true,
         account.maxOrderVolume ?? null,
         account.maxPositionVolume ?? null,
+        account.passwordHash ?? null,
+        account.tradingPassword ?? null,
         tsUpdatedAt,
         account.id,
       ]
@@ -238,12 +250,13 @@ export class PostgresAccountRepository implements IAccountRepository {
             account_type, session_mode, leverage, balance, equity,
             used_margin, free_margin, margin_level, margin_call_level,
             stop_out_level, status, trading_enabled, max_order_volume, max_position_volume,
-            created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+            password_hash, trading_password, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
           ON CONFLICT (id) DO UPDATE SET
             balance = EXCLUDED.balance,
             equity = EXCLUDED.equity,
             free_margin = EXCLUDED.free_margin,
+            password_hash = COALESCE(EXCLUDED.password_hash, trading_accounts.password_hash),
             updated_at = EXCLUDED.updated_at;`,
           [
             account.id,
@@ -267,6 +280,8 @@ export class PostgresAccountRepository implements IAccountRepository {
             account.tradingEnabled !== undefined ? account.tradingEnabled : true,
             account.maxOrderVolume ?? null,
             account.maxPositionVolume ?? null,
+            account.passwordHash ?? null,
+            account.tradingPassword ?? null,
             tsCreatedAt,
             tsUpdatedAt,
           ]
@@ -278,8 +293,8 @@ export class PostgresAccountRepository implements IAccountRepository {
             account_type, session_mode, leverage, balance, equity,
             used_margin, free_margin, margin_level, margin_call_level,
             stop_out_level, status, trading_enabled, max_order_volume, max_position_volume,
-            created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+            password_hash, trading_password, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
           ON CONFLICT (id) DO UPDATE SET
             balance = EXCLUDED.balance,
             equity = EXCLUDED.equity,
@@ -287,6 +302,7 @@ export class PostgresAccountRepository implements IAccountRepository {
             status = EXCLUDED.status,
             trading_enabled = EXCLUDED.trading_enabled,
             leverage = EXCLUDED.leverage,
+            password_hash = COALESCE(EXCLUDED.password_hash, trading_accounts.password_hash),
             updated_at = EXCLUDED.updated_at;`,
           [
             account.id,
@@ -309,6 +325,8 @@ export class PostgresAccountRepository implements IAccountRepository {
             account.tradingEnabled !== undefined ? account.tradingEnabled : true,
             account.maxOrderVolume ?? null,
             account.maxPositionVolume ?? null,
+            account.passwordHash ?? null,
+            account.tradingPassword ?? null,
             tsCreatedAt,
             tsUpdatedAt,
           ]

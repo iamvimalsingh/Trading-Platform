@@ -76,6 +76,30 @@ export function createTradingAdminRouter(adminService: TradingAdminService): Rou
     }
   });
 
+  // POST /api/admin/trading/accounts/:id/password
+  router.post('/accounts/:id/password', async (req: Request, res: Response) => {
+    try {
+      const ctx = getContext(req);
+      const result = await adminService.resetAccountPassword(ctx.tenantId, req.params.id, req.body, ctx);
+      res.json(result);
+    } catch (err: any) {
+      const isNotFound = err?.message?.includes('not found');
+      res.status(isNotFound ? 404 : 400).json({ error: err?.message || 'Failed to reset password' });
+    }
+  });
+
+  // POST /api/admin/trading/accounts/:id/reset-password (alias)
+  router.post('/accounts/:id/reset-password', async (req: Request, res: Response) => {
+    try {
+      const ctx = getContext(req);
+      const result = await adminService.resetAccountPassword(ctx.tenantId, req.params.id, req.body, ctx);
+      res.json(result);
+    } catch (err: any) {
+      const isNotFound = err?.message?.includes('not found');
+      res.status(isNotFound ? 404 : 400).json({ error: err?.message || 'Failed to reset password' });
+    }
+  });
+
   // DELETE /api/admin/trading/accounts/:id
   router.delete('/accounts/:id', async (req: Request, res: Response) => {
     try {
