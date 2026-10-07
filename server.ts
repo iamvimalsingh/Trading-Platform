@@ -12,6 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createAppAndServer } from './server/src/index';
+import { DatabaseClient } from './server/src/db/DatabaseClient';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,11 +66,31 @@ async function start() {
     }
   }
 
-  httpServer.listen(port, '0.0.0.0', () => {
+  const server = httpServer.listen(port, '0.0.0.0', () => {
     console.log(`[Trading Platform] Server listening on http://0.0.0.0:${port}`);
     console.log(`[Trading Platform] WebSocket listening on /ws`);
     console.log(`[Trading Platform] Runtime Admin stats: http://0.0.0.0:${port}/api/runtime/stats`);
   });
+
+  const shutdown = async (signal: string) => {
+    console.log(`[Trading Platform] Received ${signal}, closing server and releasing database pool...`);
+    server.close(async () => {
+      try {
+        await DatabaseClient.getInstance().close();
+        console.log('[Trading Platform] Database pool released cleanly.');
+      } catch (err) {
+        console.error('[Trading Platform] Error during database pool shutdown:', err);
+      }
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.warn('[Trading Platform] Force terminating after shutdown timeout');
+      process.exit(0);
+    }, 5000).unref();
+  };
+
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
 }
 
 start().catch((err) => {

@@ -65,7 +65,7 @@ export class DatabaseClient implements IDatabaseClient {
         // Connect to remote PostgreSQL via pg.Pool
         this.pgPool = new Pool({
           connectionString: databaseUrl,
-          max: 10,
+          max: 5,
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 5000,
         });
@@ -188,15 +188,30 @@ export class DatabaseClient implements IDatabaseClient {
     throw new Error('DatabaseClient not initialized');
   }
 
+  public getPoolMax(): number {
+    return 5;
+  }
+
   public async close(): Promise<void> {
     if (this.pgPool) {
-      await this.pgPool.end();
-      this.pgPool = null;
+      try {
+        await this.pgPool.end();
+      } catch (err) {
+        console.warn('[DatabaseClient] Warning during pgPool.end():', err);
+      } finally {
+        this.pgPool = null;
+      }
     }
     if (this.pglite) {
-      await this.pglite.close();
-      this.pglite = null;
+      try {
+        await this.pglite.close();
+      } catch (err) {
+        console.warn('[DatabaseClient] Warning during pglite.close():', err);
+      } finally {
+        this.pglite = null;
+      }
     }
     this.ready = false;
+    this.initPromise = null;
   }
 }
