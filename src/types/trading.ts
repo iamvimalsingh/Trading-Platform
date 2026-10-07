@@ -142,7 +142,7 @@ export interface Position {
   status: PositionStatus;
 }
 
-export type SessionMode = 'DEMO' | 'EXTERNAL';
+export type SessionMode = 'DEMO' | 'EXTERNAL' | 'TRADING_ACCOUNT';
 
 export interface ExternalSessionTokenPayload {
   iss: string;                 // Issuer (e.g. 'crm-backend')
@@ -181,7 +181,9 @@ export interface TradingAccount {
   maxPositionVolume?: number; // Account-level max aggregate open volume
   clientId?: string | null;   // External CRM Client ID (null for standalone accounts)
   platform?: 'MT5' | 'MT4' | 'PROPRIETARY';
-  sessionMode?: SessionMode;   // 'DEMO' or 'EXTERNAL'
+  sessionMode?: SessionMode;   // 'DEMO', 'EXTERNAL', or 'TRADING_ACCOUNT'
+  tradingPassword?: string;
+  passwordHash?: string;
 }
 
 export type LedgerEntryType = 'DEPOSIT' | 'WITHDRAWAL' | 'TRADE_PNL' | 'SWAP' | 'COMMISSION';

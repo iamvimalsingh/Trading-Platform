@@ -66,6 +66,8 @@ export async function runMigrations(db: IDatabaseClient): Promise<void> {
     `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS margin_call_level NUMERIC(10, 2) NOT NULL DEFAULT 100.00;`,
     `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS stop_out_level NUMERIC(10, 2) NOT NULL DEFAULT 50.00;`,
     `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE';`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS trading_password VARCHAR(255);`,
+    `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);`,
     `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
     `ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
 

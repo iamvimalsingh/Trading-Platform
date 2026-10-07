@@ -127,16 +127,18 @@ export function setLaunchToken(token: string): void {
   try {
     if (typeof sessionStorage !== 'undefined') {
       sessionStorage.setItem('trading_terminal_launch_token', trimmed);
+      sessionStorage.setItem('trading_session_mode', 'CRM_SSO');
     }
   } catch {
     // Storage access denied in sandboxed/cross-origin iframe
   }
+  // Explicitly purge legacy token from localStorage to prevent old session takeover
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('trading_terminal_launch_token', trimmed);
+      localStorage.removeItem('trading_terminal_launch_token');
     }
   } catch {
-    // Storage access denied in sandboxed/cross-origin iframe
+    // ignore
   }
   const claims = parseLaunchTokenClaims(trimmed);
   if (claims) {
@@ -153,9 +155,80 @@ export function setLaunchToken(token: string): void {
   }
 }
 
-export function getInitialAccount(): { account: TradingAccount; ledger: LedgerEntry[]; isExternal: boolean } {
+export function clearLaunchToken(): void {
+  inMemoryLaunchToken = null;
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('trading_terminal_launch_token');
+      sessionStorage.removeItem('trading_session_mode');
+      sessionStorage.removeItem('trading_account_login');
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('trading_terminal_launch_token');
+      localStorage.removeItem('trading_session_mode');
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function getSavedSessionMode(): 'DEMO' | 'TRADING_ACCOUNT' | 'CRM_SSO' | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  try {
+    const mode = sessionStorage.getItem('trading_session_mode');
+    if (mode === 'DEMO' || mode === 'TRADING_ACCOUNT' || mode === 'CRM_SSO') {
+      return mode;
+    }
+  } catch {}
+  return null;
+}
+
+export function saveSessionMode(mode: 'DEMO' | 'TRADING_ACCOUNT' | 'CRM_SSO' | null): void {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    if (mode) {
+      sessionStorage.setItem('trading_session_mode', mode);
+    } else {
+      sessionStorage.removeItem('trading_session_mode');
+    }
+  } catch {}
+}
+
+export function saveTradingAccountCredentials(loginId: string, password: string): void {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.setItem('trading_account_login', JSON.stringify({ loginId, password }));
+  } catch {}
+}
+
+export function getSavedTradingAccountCredentials(): { loginId: string; password: string } | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem('trading_account_login');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.loginId && parsed.password) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+export function getInitialAccount(): {
+  account: TradingAccount;
+  ledger: LedgerEntry[];
+  isExternal: boolean;
+  initialMode: 'LOGIN_GATE' | 'DEMO' | 'CRM_SSO' | 'TRADING_ACCOUNT';
+  initialError?: string;
+} {
   const token = extractLaunchToken();
   const claims = parseLaunchTokenClaims(token);
+  const savedMode = getSavedSessionMode();
 
   if (claims && claims.accountNumber) {
     const bal = typeof claims.balance === 'number'
@@ -188,15 +261,81 @@ export function getInitialAccount(): { account: TradingAccount; ledger: LedgerEn
       account: externalAccount,
       ledger: [],
       isExternal: true,
+      initialMode: 'CRM_SSO',
     };
   }
 
-  // Standalone DEMO fallback
+  if (savedMode === 'DEMO') {
+    return {
+      account: {
+        id: 'acc_demo_1001',
+        tenantId: 'tenant_default',
+        accountNumber: 'DEMO-1001',
+        platform: 'PROPRIETARY',
+        currency: 'USD',
+        accountType: 'DEMO',
+        sessionMode: 'DEMO',
+        leverage: 100,
+        balance: 10000.00,
+        equity: 10000.00,
+        usedMargin: 0.00,
+        freeMargin: 10000.00,
+        marginLevel: 0,
+        marginCallLevel: 100,
+        stopOutLevel: 50,
+        status: 'ACTIVE',
+        tradingEnabled: true,
+      },
+      ledger: [
+        {
+          id: 'led_init_1',
+          accountId: 'acc_demo_1001',
+          type: 'DEPOSIT',
+          amount: 10000.00,
+          balanceAfter: 10000.00,
+          description: 'Initial Demo Balance Credited',
+          createdAt: Date.now() - 3600000,
+        },
+      ],
+      isExternal: false,
+      initialMode: 'DEMO',
+    };
+  }
+
+  if (savedMode === 'TRADING_ACCOUNT') {
+    const creds = getSavedTradingAccountCredentials();
+    return {
+      account: {
+        id: `acc_${creds?.loginId || 'guest'}`,
+        tenantId: 'tenant_default',
+        accountNumber: creds?.loginId || 'GUEST',
+        platform: 'MT5',
+        currency: 'USD',
+        accountType: 'LIVE',
+        sessionMode: 'TRADING_ACCOUNT',
+        leverage: 100,
+        balance: 0.00,
+        equity: 0.00,
+        usedMargin: 0.00,
+        freeMargin: 0.00,
+        marginLevel: 0,
+        marginCallLevel: 100,
+        stopOutLevel: 50,
+        status: 'ACTIVE',
+        tradingEnabled: true,
+      },
+      ledger: [],
+      isExternal: false,
+      initialMode: 'TRADING_ACCOUNT',
+    };
+  }
+
+  // Standalone Direct Access -> LOGIN_GATE (Zero silent DEMO fallback)
   return {
     account: {
-      id: 'acc_demo_1001',
+      id: 'acc_guest',
       tenantId: 'tenant_default',
-      accountNumber: 'DEMO-1001',
+      accountNumber: 'GUEST',
       platform: 'PROPRIETARY',
       currency: 'USD',
       accountType: 'DEMO',
@@ -210,20 +349,11 @@ export function getInitialAccount(): { account: TradingAccount; ledger: LedgerEn
       marginCallLevel: 100,
       stopOutLevel: 50,
       status: 'ACTIVE',
-      tradingEnabled: true,
+      tradingEnabled: false,
     },
-    ledger: [
-      {
-        id: 'led_init_1',
-        accountId: 'acc_demo_1001',
-        type: 'DEPOSIT',
-        amount: 10000.00,
-        balanceAfter: 10000.00,
-        description: 'Initial Demo Balance Credited',
-        createdAt: Date.now() - 3600000,
-      },
-    ],
+    ledger: [],
     isExternal: false,
+    initialMode: 'LOGIN_GATE',
   };
 }
 
@@ -286,6 +416,11 @@ export function resolveWebSocketUrl(
  */
 export function extractLaunchToken(): string | null {
   if (inMemoryLaunchToken) {
+    const claims = parseLaunchTokenClaims(inMemoryLaunchToken);
+    if (claims && typeof claims.exp === 'number' && claims.exp * 1000 < Date.now()) {
+      clearLaunchToken();
+      return null;
+    }
     return inMemoryLaunchToken;
   }
 
@@ -298,6 +433,11 @@ export function extractLaunchToken(): string | null {
     for (const key of candidateKeys) {
       const val = params.get(key)?.trim();
       if (val && val.split('.').length === 3) {
+        const claims = parseLaunchTokenClaims(val);
+        if (claims && typeof claims.exp === 'number' && claims.exp * 1000 < Date.now()) {
+          clearLaunchToken();
+          return null;
+        }
         setLaunchToken(val);
         return val;
       }
@@ -315,6 +455,11 @@ export function extractLaunchToken(): string | null {
       for (const key of candidateKeys) {
         const val = hashParams.get(key)?.trim();
         if (val && val.split('.').length === 3) {
+          const claims = parseLaunchTokenClaims(val);
+          if (claims && typeof claims.exp === 'number' && claims.exp * 1000 < Date.now()) {
+            clearLaunchToken();
+            return null;
+          }
           setLaunchToken(val);
           return val;
         }
@@ -324,33 +469,38 @@ export function extractLaunchToken(): string | null {
     // ignore
   }
 
-  // 3. Check sessionStorage safely
+  // 3. Check sessionStorage ONLY if an active CRM_SSO session was previously marked
   try {
     if (typeof sessionStorage !== 'undefined') {
-      const saved = sessionStorage.getItem('trading_terminal_launch_token')?.trim();
-      if (saved && saved.split('.').length === 3) {
-        inMemoryLaunchToken = saved;
-        return inMemoryLaunchToken;
+      const mode = sessionStorage.getItem('trading_session_mode');
+      if (mode === 'CRM_SSO') {
+        const saved = sessionStorage.getItem('trading_terminal_launch_token')?.trim();
+        if (saved && saved.split('.').length === 3) {
+          const claims = parseLaunchTokenClaims(saved);
+          if (claims && typeof claims.exp === 'number' && claims.exp * 1000 < Date.now()) {
+            clearLaunchToken();
+            return null;
+          }
+          inMemoryLaunchToken = saved;
+          return inMemoryLaunchToken;
+        }
       }
     }
   } catch {
     // ignore
   }
 
-  // 4. Check localStorage safely
+  // NOTE: localStorage is intentionally NEVER inspected for tokens.
+  // This ensures standalone direct visits never inherit stale/expired external accounts.
   try {
     if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem('trading_terminal_launch_token')?.trim();
-      if (saved && saved.split('.').length === 3) {
-        inMemoryLaunchToken = saved;
-        return inMemoryLaunchToken;
-      }
+      localStorage.removeItem('trading_terminal_launch_token');
     }
   } catch {
     // ignore
   }
 
-  return inMemoryLaunchToken;
+  return null;
 }
 
 // Global listener for CRM parent window postMessage (for iframe integration)
@@ -404,6 +554,7 @@ export class TradingSocketClient {
   private statusHandlers: Set<(status: SocketStatus) => void> = new Set();
 
   private activeSubscribedSymbols: Set<string> = new Set();
+  private pendingSessionInit: SessionInitPayload | null = null;
 
   constructor() {
     // Lazy or explicit connect
@@ -426,18 +577,39 @@ export class TradingSocketClient {
     }
   }
 
+  public sendSessionInit(payload: SessionInitPayload): void {
+    this.authFailureCode = null;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.send('SESSION_INIT', payload);
+    } else {
+      this.pendingSessionInit = payload;
+      this.connect();
+    }
+  }
+
   public reinitializeSession(token?: string): void {
     this.authFailureCode = null;
     const launchToken = token || extractLaunchToken();
+    const savedMode = getSavedSessionMode();
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.disconnect();
       this.connect();
       return;
     }
-    const initPayload: SessionInitPayload = launchToken
-      ? { mode: 'EXTERNAL', token: launchToken }
-      : { mode: 'DEMO' };
-    this.send('SESSION_INIT', initPayload);
+    if (launchToken) {
+      this.send('SESSION_INIT', { mode: 'EXTERNAL', token: launchToken });
+    } else if (savedMode === 'TRADING_ACCOUNT') {
+      const creds = getSavedTradingAccountCredentials();
+      if (creds && creds.loginId && creds.password) {
+        this.send('SESSION_INIT', {
+          mode: 'TRADING_ACCOUNT',
+          loginId: creds.loginId,
+          password: creds.password,
+        });
+      }
+    } else if (savedMode === 'DEMO') {
+      this.send('SESSION_INIT', { mode: 'DEMO' });
+    }
   }
 
   public connect(): void {
@@ -466,13 +638,32 @@ export class TradingSocketClient {
 
       this.startPing();
 
-      // Immediately transmit SESSION_INIT with detected launch context (EXTERNAL token or DEMO)
+      // Only transmit SESSION_INIT if an active token, pending init, or stored session exists
       const token = extractLaunchToken();
-      const initPayload: SessionInitPayload = token
-        ? { mode: 'EXTERNAL', token }
-        : { mode: 'DEMO' };
+      const savedMode = getSavedSessionMode();
 
-      this.send('SESSION_INIT', initPayload);
+      if (token) {
+        // Valid CRM launch token present
+        this.send('SESSION_INIT', { mode: 'EXTERNAL', token });
+      } else if (this.pendingSessionInit) {
+        // User explicitly initiated session (Login or Login with Demo)
+        this.send('SESSION_INIT', this.pendingSessionInit);
+        this.pendingSessionInit = null;
+      } else if (savedMode === 'TRADING_ACCOUNT') {
+        const creds = getSavedTradingAccountCredentials();
+        if (creds && creds.loginId && creds.password) {
+          this.send('SESSION_INIT', {
+            mode: 'TRADING_ACCOUNT',
+            loginId: creds.loginId,
+            password: creds.password,
+          });
+        }
+      } else if (savedMode === 'DEMO') {
+        // Active demo session explicitly entered in this browser session
+        this.send('SESSION_INIT', { mode: 'DEMO' });
+      }
+      // If none of the above, DO NOT send SESSION_INIT automatically.
+      // Socket remains ready for user action on LoginGate.
 
       // If we had active subscribed symbols, resubscribe them
       if (this.activeSubscribedSymbols.size > 0) {

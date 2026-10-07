@@ -20,17 +20,33 @@ import {
   SymbolConfig,
   TradingAccount,
 } from '../types/trading';
-import { SocketStatus, tradingSocket, getInitialAccount, onLaunchTokenDetected, extractLaunchToken } from '../services/tradingSocket';
+import {
+  SocketStatus,
+  tradingSocket,
+  getInitialAccount,
+  onLaunchTokenDetected,
+  extractLaunchToken,
+  saveSessionMode,
+  clearLaunchToken,
+  saveTradingAccountCredentials,
+} from '../services/tradingSocket';
 import { ReplaceOrderPayload, SessionReadyPayload, ErrorPayload } from '../types/wsProtocol';
 import { ALL_SYMBOLS, INITIAL_SYMBOLS } from '../constants/symbols';
 
 export type SessionAuthState =
   | 'INITIALIZING'
+  | 'LOGIN_GATE'
   | 'DEMO'
+  | 'TRADING_ACCOUNT_AUTHENTICATING'
+  | 'TRADING_ACCOUNT_AUTHENTICATED'
+  | 'CRM_SSO_AUTHENTICATING'
+  | 'CRM_SSO_AUTHENTICATED'
   | 'EXTERNAL_PENDING'
   | 'EXTERNAL_AUTHENTICATED'
   | 'EXTERNAL_ERROR'
-  | 'EXTERNAL_EXPIRED';
+  | 'EXTERNAL_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'SESSION_ERROR';
 
 export interface TradingState {
   // Connection & Session State
@@ -83,6 +99,11 @@ export interface TradingState {
   handleOrderUpdate: (order: Order) => void;
   recordExecution: (execution: Execution) => void;
 
+  // Authentication & Gate Actions
+  loginTradingAccount: (loginId: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithDemo: () => void;
+  logout: () => void;
+
   // Commands dispatched to Server
   placeOrder: (request: Omit<OrderRequest, 'accountId'>) => Promise<OrderResult>;
   cancelOrder: (orderId: string) => Promise<boolean>;
@@ -130,8 +151,14 @@ export const useTradingStore = create<TradingState>((set, get) => {
 
   return {
     socketStatus: 'DISCONNECTED',
-    sessionAuthState: initialAccountContext.isExternal ? 'EXTERNAL_PENDING' : 'DEMO',
-    sessionAuthError: null,
+    sessionAuthState: initialAccountContext.initialMode === 'CRM_SSO'
+      ? 'EXTERNAL_PENDING'
+      : (initialAccountContext.initialMode === 'TRADING_ACCOUNT'
+        ? 'TRADING_ACCOUNT_AUTHENTICATING'
+        : (initialAccountContext.initialMode === 'DEMO'
+          ? 'DEMO'
+          : 'LOGIN_GATE')),
+    sessionAuthError: initialAccountContext.initialError || null,
 
     account: initialAccountContext.account,
     ledger: initialAccountContext.ledger,
@@ -162,27 +189,132 @@ export const useTradingStore = create<TradingState>((set, get) => {
 
     setSessionAuthState: (sessionAuthState) => set({ sessionAuthState }),
 
+    loginTradingAccount: async (loginId: string, password: string) => {
+      set({ sessionAuthState: 'TRADING_ACCOUNT_AUTHENTICATING', sessionAuthError: null });
+      tradingSocket.sendSessionInit({
+        mode: 'TRADING_ACCOUNT',
+        loginId,
+        password,
+      });
+      saveTradingAccountCredentials(loginId, password);
+      saveSessionMode('TRADING_ACCOUNT');
+      return { success: true };
+    },
+
+    loginWithDemo: () => {
+      saveSessionMode('DEMO');
+      const demoAccount: TradingAccount = {
+        id: 'acc_demo_1001',
+        tenantId: 'tenant_default',
+        accountNumber: 'DEMO-1001',
+        platform: 'PROPRIETARY',
+        currency: 'USD',
+        accountType: 'DEMO',
+        sessionMode: 'DEMO',
+        leverage: 100,
+        balance: 10000.00,
+        equity: 10000.00,
+        usedMargin: 0.00,
+        freeMargin: 10000.00,
+        marginLevel: 0,
+        marginCallLevel: 100,
+        stopOutLevel: 50,
+        status: 'ACTIVE',
+        tradingEnabled: true,
+      };
+      set({
+        sessionAuthState: 'DEMO',
+        sessionAuthError: null,
+        account: demoAccount,
+        ledger: [
+          {
+            id: 'led_init_1',
+            accountId: 'acc_demo_1001',
+            type: 'DEPOSIT',
+            amount: 10000.00,
+            balanceAfter: 10000.00,
+            description: 'Initial Demo Balance Credited',
+            createdAt: Date.now() - 3600000,
+          },
+        ],
+      });
+      tradingSocket.sendSessionInit({ mode: 'DEMO' });
+    },
+
+    logout: () => {
+      clearLaunchToken();
+      saveSessionMode(null);
+      set({
+        sessionAuthState: 'LOGIN_GATE',
+        sessionAuthError: null,
+        account: {
+          id: 'acc_guest',
+          tenantId: 'tenant_default',
+          accountNumber: 'GUEST',
+          platform: 'PROPRIETARY',
+          currency: 'USD',
+          accountType: 'DEMO',
+          sessionMode: 'DEMO',
+          leverage: 100,
+          balance: 0,
+          equity: 0,
+          usedMargin: 0,
+          freeMargin: 0,
+          marginLevel: 0,
+          marginCallLevel: 100,
+          stopOutLevel: 50,
+          status: 'ACTIVE',
+          tradingEnabled: false,
+        },
+        positions: [],
+        orders: [],
+        closedTrades: [],
+        ledger: [],
+      });
+    },
+
     handleServerError: (err: ErrorPayload) => {
       const isExpired = err.code === 'SESSION_EXPIRED';
       const isUnauthorized = err.code === 'UNAUTHORIZED' || err.code === 'MISSING_CREDENTIAL';
       const isNotProvisioned = err.code === 'ACCOUNT_NOT_PROVISIONED';
+      const isDbUnavailable = err.code === 'DATABASE_UNAVAILABLE';
+      const isDirectLoginFail = err.code === 'INVALID_CREDENTIALS' ||
+                                err.code === 'ACCOUNT_NOT_FOUND' ||
+                                err.code === 'ACCOUNT_DISABLED' ||
+                                err.code === 'ACCOUNT_SUSPENDED';
 
       set((state) => {
         let nextAuthState = state.sessionAuthState;
         let errorMessage = err.message || 'Server error';
 
-        if (isExpired) {
+        if (state.sessionAuthState === 'TRADING_ACCOUNT_AUTHENTICATING' || isDirectLoginFail) {
+          nextAuthState = 'LOGIN_GATE';
+          errorMessage = err.message || 'Invalid login ID or account password';
+          clearLaunchToken();
+          saveSessionMode(null);
+        } else if (isExpired) {
           nextAuthState = 'EXTERNAL_EXPIRED';
-          errorMessage = err.message || 'CRM Launch Session Expired. Please relaunch from your CRM Client Panel.';
+          errorMessage = err.message || 'CRM Launch Session Expired. Please relaunch from your CRM Client Panel or log in below.';
+          clearLaunchToken();
+          saveSessionMode(null);
         } else if (isNotProvisioned) {
           nextAuthState = 'EXTERNAL_ERROR';
           errorMessage = err.message || 'Trading account has not been provisioned by broker management.';
+          clearLaunchToken();
+          saveSessionMode(null);
+        } else if (isDbUnavailable) {
+          nextAuthState = 'EXTERNAL_ERROR';
+          errorMessage = err.message || 'Trading server database connection unavailable. Please retry in a few moments.';
         } else if (isUnauthorized) {
           nextAuthState = 'EXTERNAL_ERROR';
           errorMessage = err.message || 'CRM Launch Authentication Failed. Invalid or unverified launch token.';
+          clearLaunchToken();
+          saveSessionMode(null);
         } else if (state.account.sessionMode === 'EXTERNAL' && state.sessionAuthState === 'EXTERNAL_PENDING') {
           nextAuthState = 'EXTERNAL_ERROR';
           errorMessage = err.message || 'Failed to establish external trading session.';
+          clearLaunchToken();
+          saveSessionMode(null);
         }
 
         return {
@@ -198,8 +330,14 @@ export const useTradingStore = create<TradingState>((set, get) => {
         symbolsMap[s.symbol] = s;
       }
 
+      const nextAuth = data.account.sessionMode === 'EXTERNAL'
+        ? 'EXTERNAL_AUTHENTICATED'
+        : (data.account.sessionMode === 'TRADING_ACCOUNT'
+          ? 'TRADING_ACCOUNT_AUTHENTICATED'
+          : 'DEMO');
+
       set({
-        sessionAuthState: data.account.sessionMode === 'EXTERNAL' ? 'EXTERNAL_AUTHENTICATED' : 'DEMO',
+        sessionAuthState: nextAuth,
         sessionAuthError: null,
         account: data.account,
         symbols: symbolsMap,

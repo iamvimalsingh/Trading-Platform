@@ -70,7 +70,10 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
   private reconnectAttempts: number = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private staleWatchdogTimer: NodeJS.Timeout | null = null;
+  private stableTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
   private restSeedPerformed: boolean = false;
+  private rateLimitedUntil: number = 0;
 
   private subscribedCanonicalSymbols: Set<string> = new Set();
   private activeWebSocketSymbols: Set<string> = new Set();
@@ -89,9 +92,9 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     this.restBaseUrl = options?.restBaseUrl || 'https://api.twelvedata.com';
     this.staleThresholdMs = options?.staleThresholdMs || 15000;
     this.restStaleThresholdMs = options?.restStaleThresholdMs || 45000; // 3x 15s REST polling cadence
-    this.restPollIntervalMs = options?.restPollIntervalMs || 15000;
-    this.initialReconnectDelayMs = options?.initialReconnectDelayMs || 1000;
-    this.maxReconnectDelayMs = options?.maxReconnectDelayMs || 30000;
+    this.restPollIntervalMs = options?.restPollIntervalMs || 25000;
+    this.initialReconnectDelayMs = options?.initialReconnectDelayMs || 8000;
+    this.maxReconnectDelayMs = options?.maxReconnectDelayMs || 45000;
 
     // Default canonical symbols managed by Twelve Data
     const initialSymbols = options?.symbols || ['BTCUSD', 'ETHUSD', 'BNBUSD', 'SOLUSD', 'XRPUSD', 'XAUUSD', 'XAGUSD', 'WTIUSD'];
@@ -143,6 +146,13 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
   public stop(): void {
     this.isRunning = false;
 
+    this.stopHeartbeat();
+
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -175,6 +185,29 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     }
 
     this.status = 'DISCONNECTED';
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        // Only send heartbeat if connection has been idle for >= 20s to conserve event quota
+        if (Date.now() - this.lastMessageTimestamp >= 20000) {
+          try {
+            this.ws.send(JSON.stringify({ action: 'heartbeat' }));
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }, 15000);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   public connect(): void {
@@ -282,6 +315,34 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
   private connectWebSocket(): void {
     if (!this.isRunning || !this.isKeyConfigured()) return;
 
+    if (this.rateLimitedUntil > Date.now()) {
+      const waitMs = this.rateLimitedUntil - Date.now() + 1000;
+      console.log(`[TwelveDataMarketDataAdapter] Currently rate-limited (100 events/min quota). Deferring connect by ${Math.round(waitMs / 1000)}s.`);
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connectWebSocket();
+      }, waitMs);
+      return;
+    }
+
+    // Clean up any existing connection before opening a new one to prevent concurrent socket collisions
+    if (this.ws) {
+      const oldWs = this.ws;
+      this.ws = null;
+      this.stopHeartbeat();
+      oldWs.removeAllListeners();
+      try {
+        if (oldWs.readyState === WebSocket.OPEN) {
+          oldWs.close();
+        } else {
+          oldWs.terminate();
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     this.status = this.reconnectAttempts > 0 ? 'RECONNECTING' : 'CONNECTING';
 
     const fullUrl = `${this.wsUrl}?apikey=${encodeURIComponent(this.apiKey)}`;
@@ -291,9 +352,18 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
 
       this.ws.on('open', () => {
         this.status = 'CONNECTED';
-        this.reconnectAttempts = 0;
         this.lastMessageTimestamp = Date.now();
         console.log(`[TwelveDataMarketDataAdapter] Connected to WebSocket at ${this.wsUrl}`);
+
+        // Start heartbeat keepalive (every 10s per Twelve Data specification)
+        this.startHeartbeat();
+
+        // Only mark connection as stable and reset attempts counter after 30s of uninterrupted uptime
+        if (this.stableTimer) clearTimeout(this.stableTimer);
+        this.stableTimer = setTimeout(() => {
+          this.reconnectAttempts = 0;
+          this.stableTimer = null;
+        }, 30000);
 
         // Subscribe all active symbols
         const providerSymbols: string[] = [];
@@ -317,8 +387,8 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
         console.warn('[TwelveDataMarketDataAdapter] WebSocket error:', err.message);
       });
 
-      this.ws.on('close', () => {
-        this.handleSocketClose();
+      this.ws.on('close', (code: number, reason: Buffer) => {
+        this.handleSocketClose(code, reason ? reason.toString() : undefined);
       });
     } catch (err: any) {
       console.warn('[TwelveDataMarketDataAdapter] Failed to establish WebSocket:', err.message);
@@ -348,17 +418,32 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
     }
   }
 
-  private handleSocketClose(): void {
+  private handleSocketClose(code?: number, reason?: string): void {
+    this.stopHeartbeat();
+
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
+
     this.status = 'DISCONNECTED';
     this.ws = null;
 
     if (!this.isRunning) return;
 
     this.reconnectAttempts++;
-    const delay = Math.min(
-      this.initialReconnectDelayMs * Math.pow(1.5, this.reconnectAttempts - 1),
+    // Apply backoff with jitter to prevent concurrent instance lockstep / thundering herd
+    const jitter = Math.floor(Math.random() * 2000) + 1000;
+    let delay = Math.min(
+      this.initialReconnectDelayMs * Math.pow(1.5, this.reconnectAttempts - 1) + jitter,
       this.maxReconnectDelayMs
     );
+
+    if (this.rateLimitedUntil > Date.now()) {
+      delay = Math.max(delay, this.rateLimitedUntil - Date.now() + 2000);
+    }
+
+    console.log(`[TwelveDataMarketDataAdapter] Connection closed (code: ${code || 'unknown'}, reason: ${reason || 'none'}). Scheduling reconnect in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts})...`);
 
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
@@ -419,8 +504,41 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
       return;
     }
 
-    if (parsed.event === 'error' || parsed.status === 'error') {
-      const note = parsed.message || (typeof parsed === 'string' ? parsed : JSON.stringify(parsed));
+    if (parsed.event === 'error' || parsed.status === 'error' || parsed.event === 'message-processing') {
+      const rawMsg = JSON.stringify(parsed);
+      const isRateLimited = rawMsg.includes('exceeds the limit') ||
+                            rawMsg.includes('100 events per minute') ||
+                            rawMsg.includes('limit of 100') ||
+                            rawMsg.includes('rate limit');
+      if (isRateLimited) {
+        this.rateLimitedUntil = Date.now() + 75000;
+        this.status = 'DEGRADED';
+        this.stopHeartbeat();
+        console.log('[TwelveDataMarketDataAdapter] Event rate limit detected (100 events/min quota). Pausing WebSocket reconnects and REST polling for 75s.');
+
+        // Close socket cleanly so Twelve Data terminates the session and resets the quota
+        if (this.ws) {
+          const socket = this.ws;
+          this.ws = null;
+          socket.removeAllListeners();
+          socket.on('error', () => {});
+          try {
+            socket.close();
+          } catch {
+            // ignore
+          }
+        }
+
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        const resumeDelay = 76000 + Math.floor(Math.random() * 4000);
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this.connectWebSocket();
+        }, resumeDelay);
+        return;
+      }
+
+      const note = parsed.message || (Array.isArray(parsed.messages) ? parsed.messages.join('; ') : 'Provider notice received');
       console.log(`[TwelveDataMarketDataAdapter] Provider note: ${note}`);
       return;
     }
@@ -431,11 +549,11 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
   }
 
   public async pollRestQuotes(): Promise<void> {
-    if (this.isPollingRest || !this.isRunning || !this.isKeyConfigured()) return;
+    if (this.isPollingRest || !this.isRunning || !this.isKeyConfigured() || this.rateLimitedUntil > Date.now()) return;
 
     const targets: string[] = [];
     for (const can of this.subscribedCanonicalSymbols) {
-      if (this.unsupportedWebSocketSymbols.has(can) || !this.isHealthy()) {
+      if (this.unsupportedWebSocketSymbols.has(can) || (!this.isHealthy() && this.status !== 'DEGRADED')) {
         const mapping = getSymbolMapping(can);
         if (mapping?.twelveDataSymbol) {
           targets.push(mapping.twelveDataSymbol);
@@ -447,48 +565,54 @@ export class TwelveDataMarketDataAdapter implements IMarketDataAdapter {
 
     this.isPollingRest = true;
     try {
-      const chunkSize = 3;
-      for (let i = 0; i < targets.length; i += chunkSize) {
-        if (!this.isRunning) break;
-        const chunk = targets.slice(i, i + chunkSize);
-        const url = `${this.restBaseUrl}/price?symbol=${encodeURIComponent(chunk.join(','))}&apikey=${encodeURIComponent(this.apiKey)}`;
+      // Query all target symbols in a single batch request to avoid exhausting REST quota
+      const url = `${this.restBaseUrl}/price?symbol=${encodeURIComponent(targets.join(','))}&apikey=${encodeURIComponent(this.apiKey)}`;
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-        try {
-          const res = await fetch(url, { signal: controller.signal });
-          clearTimeout(timeoutId);
+      try {
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
 
-          if (!res.ok) continue;
-          const data = await res.json();
-          if (!data || data.status === 'error' || data.code) continue;
+        if (res.status === 429) {
+          this.rateLimitedUntil = Date.now() + 75000;
+          this.status = 'DEGRADED';
+          return;
+        }
 
-          const now = Date.now();
-          this.lastMessageTimestamp = now;
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data) return;
 
-          if (chunk.length === 1 && data.price) {
-            const can = getCanonicalFromTwelveData(chunk[0]);
-            if (can) {
-              this.applyRestPrice(can, parseFloat(data.price), now);
-            }
-          } else if (typeof data === 'object') {
-            for (const [providerSym, val] of Object.entries<any>(data)) {
-              if (val && val.price) {
-                const can = getCanonicalFromTwelveData(providerSym);
-                if (can) {
-                  this.applyRestPrice(can, parseFloat(val.price), now);
-                }
+        if (data.code === 429 || (data.status === 'error' && JSON.stringify(data).includes('limit'))) {
+          this.rateLimitedUntil = Date.now() + 75000;
+          this.status = 'DEGRADED';
+          return;
+        }
+
+        if (data.status === 'error' || data.code) return;
+
+        const now = Date.now();
+        this.lastMessageTimestamp = now;
+
+        if (targets.length === 1 && data.price) {
+          const can = getCanonicalFromTwelveData(targets[0]);
+          if (can) {
+            this.applyRestPrice(can, parseFloat(data.price), now);
+          }
+        } else if (typeof data === 'object') {
+          for (const [providerSym, val] of Object.entries<any>(data)) {
+            if (val && val.price) {
+              const can = getCanonicalFromTwelveData(providerSym);
+              if (can) {
+                this.applyRestPrice(can, parseFloat(val.price), now);
               }
             }
           }
-        } catch {
-          clearTimeout(timeoutId);
         }
-
-        if (i + chunkSize < targets.length) {
-          await new Promise((r) => setTimeout(r, 1000));
-        }
+      } catch {
+        clearTimeout(timeoutId);
       }
     } finally {
       this.isPollingRest = false;

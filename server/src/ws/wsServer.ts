@@ -156,7 +156,7 @@ export class TradingWebSocketServer {
           } else {
             session.accountId = 'unauthenticated';
             this.runtime.sendToClient(session, 'ERROR', {
-              code: result.errorCode || 'UNAUTHORIZED',
+              code: result.errorCode || 'INTERNAL_ERROR',
               message: result.error || 'Session initialization failed',
             }, envelope.requestId);
           }

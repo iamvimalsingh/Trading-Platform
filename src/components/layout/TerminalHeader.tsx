@@ -4,12 +4,13 @@
  */
 
 import React from 'react';
-import { Moon, RefreshCw, Sun, Zap } from 'lucide-react';
+import { Moon, RefreshCw, Sun, Zap, LogOut } from 'lucide-react';
 import { useTradingStore } from '../../store/useTradingStore';
 
 export const TerminalHeader: React.FC = () => {
   const account = useTradingStore((state) => state.account);
   const sessionAuthState = useTradingStore((state) => state.sessionAuthState);
+  const sessionAuthError = useTradingStore((state) => state.sessionAuthError);
   const activeSymbolCount = useTradingStore((state) => state.activeSymbolCount);
   const fps = useTradingStore((state) => state.fps);
   const socketStatus = useTradingStore((state) => state.socketStatus);
@@ -17,6 +18,7 @@ export const TerminalHeader: React.FC = () => {
   const toggleTheme = useTradingStore((state) => state.toggleTheme);
   const togglePerfLab = useTradingStore((state) => state.togglePerfLab);
   const resetAccount = useTradingStore((state) => state.resetAccount);
+  const logout = useTradingStore((state) => state.logout);
   const toggleMobileAccountDrawer = useTradingStore((state) => state.toggleMobileAccountDrawer);
 
   const totalPnL = Number((account.equity - account.balance).toFixed(2));
@@ -35,7 +37,12 @@ export const TerminalHeader: React.FC = () => {
               <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs sm:text-sm tracking-tight">
                 TRADING TERMINAL
               </span>
-              {sessionAuthState === 'EXTERNAL_AUTHENTICATED' ? (
+              {sessionAuthState === 'TRADING_ACCOUNT_AUTHENTICATED' ? (
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 font-semibold border border-blue-300 dark:border-blue-700/50 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                  {account.platform || 'LIVE'} #{account.accountNumber}
+                </span>
+              ) : sessionAuthState === 'EXTERNAL_AUTHENTICATED' ? (
                 <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 font-semibold border border-emerald-300 dark:border-emerald-700/50 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   {account.platform || 'MT5'} #{account.accountNumber}
@@ -48,7 +55,12 @@ export const TerminalHeader: React.FC = () => {
               ) : sessionAuthState === 'EXTERNAL_ERROR' ? (
                 <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 font-semibold border border-rose-300 dark:border-rose-700/50 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  {account.platform || 'MT5'} #{account.accountNumber} <span className="opacity-75">(AUTH FAILED)</span>
+                  {account.platform || 'MT5'} #{account.accountNumber}{' '}
+                  <span className="opacity-75">
+                    {sessionAuthError?.toLowerCase().includes('database') || sessionAuthError?.toLowerCase().includes('circuitbreaker')
+                      ? '(DB UNAVAILABLE)'
+                      : '(AUTH FAILED)'}
+                  </span>
                 </span>
               ) : sessionAuthState === 'EXTERNAL_EXPIRED' ? (
                 <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 font-semibold border border-rose-300 dark:border-rose-700/50 flex items-center gap-1">
@@ -200,6 +212,14 @@ export const TerminalHeader: React.FC = () => {
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
         )}
+
+        <button
+          onClick={logout}
+          className="p-2 rounded-lg bg-slate-100 dark:bg-zinc-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center"
+          title="Exit Session to Login Gate"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+        </button>
       </div>
     </header>
   );

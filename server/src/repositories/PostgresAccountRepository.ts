@@ -65,9 +65,19 @@ export class PostgresAccountRepository implements IAccountRepository {
       tradingEnabled: row.trading_enabled !== undefined && row.trading_enabled !== null ? Boolean(row.trading_enabled) : true,
       maxOrderVolume: row.max_order_volume ? Number(row.max_order_volume) : undefined,
       maxPositionVolume: row.max_position_volume ? Number(row.max_position_volume) : undefined,
+      tradingPassword: row.trading_password || undefined,
+      passwordHash: row.password_hash || undefined,
       createdAt: row.created_at ? parseDbTimestamp(row.created_at) : undefined,
       updatedAt: row.updated_at ? parseDbTimestamp(row.updated_at) : undefined,
     };
+  }
+
+  public async setTradingPassword(idOrNumber: string, password: string): Promise<void> {
+    if (!idOrNumber || !password) return;
+    await this.db.query(
+      `UPDATE trading_accounts SET trading_password = $1, updated_at = NOW() WHERE id = $2 OR account_number = $2;`,
+      [password, idOrNumber]
+    );
   }
 
   public async getAccount(idOrNumber: string): Promise<TradingAccount | undefined> {

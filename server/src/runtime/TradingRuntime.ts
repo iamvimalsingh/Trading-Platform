@@ -18,6 +18,32 @@ import { OrderEngine } from '../trading/OrderEngine';
 import { PositionEngine } from '../trading/PositionEngine';
 import { RiskEngine } from '../trading/RiskEngine';
 import { ExecutionRegistry } from '../trading/ExecutionRegistry';
+import crypto from 'node:crypto';
+
+export function verifyTradingPassword(providedPassword: string, storedCredential?: string): boolean {
+  if (!providedPassword || !storedCredential) return false;
+  // If stored as salt:hash
+  if (storedCredential.includes(':')) {
+    try {
+      const [salt, key] = storedCredential.split(':');
+      if (!salt || !key) return false;
+      const keyBuffer = Buffer.from(key, 'hex');
+      const derivedKey = crypto.scryptSync(providedPassword, salt, 64);
+      return crypto.timingSafeEqual(keyBuffer, derivedKey);
+    } catch {
+      return false;
+    }
+  }
+  // Constant-time comparison for plain string credentials
+  try {
+    const a = Buffer.from(providedPassword);
+    const b = Buffer.from(storedCredential);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return providedPassword === storedCredential;
+  }
+}
 import {
   CancelOrderRequest,
   Execution,
@@ -114,7 +140,18 @@ export interface SessionInitResult {
   success: boolean;
   readyPayload?: SessionReadyPayload;
   error?: string;
-  errorCode?: 'UNAUTHORIZED' | 'SESSION_EXPIRED' | 'MISSING_CREDENTIAL' | 'ACCOUNT_NOT_FOUND' | 'ACCOUNT_NOT_PROVISIONED' | 'INVALID_SESSION';
+  errorCode?:
+    | 'UNAUTHORIZED'
+    | 'SESSION_EXPIRED'
+    | 'MISSING_CREDENTIAL'
+    | 'ACCOUNT_NOT_FOUND'
+    | 'ACCOUNT_NOT_PROVISIONED'
+    | 'INVALID_SESSION'
+    | 'DATABASE_UNAVAILABLE'
+    | 'INTERNAL_ERROR'
+    | 'INVALID_CREDENTIALS'
+    | 'ACCOUNT_DISABLED'
+    | 'ACCOUNT_SUSPENDED';
 }
 
 export class TradingRuntime {
@@ -392,10 +429,116 @@ export class TradingRuntime {
       payload = initPayload || {};
     }
 
-    const mode = payload.mode || (payload.token ? 'EXTERNAL' : 'DEMO');
+    const mode = payload.mode || (payload.token ? 'EXTERNAL' : (payload.loginId ? 'TRADING_ACCOUNT' : 'DEMO'));
     let resolvedAccount: TradingAccount | undefined;
 
-    if (mode === 'EXTERNAL' || payload.token) {
+    if (mode === 'TRADING_ACCOUNT') {
+      // MODE C — DIRECT TRADING ACCOUNT AUTHENTICATION
+      console.log(`[TradingRuntime] [SessionInit] Direct Trading Account login requested for connection ${connectionId}`);
+      const loginId = (payload.loginId || payload.preferredAccountId || '').trim();
+      const password = (payload.password || '').trim();
+
+      if (!loginId || !password) {
+        return {
+          success: false,
+          errorCode: 'MISSING_CREDENTIAL',
+          error: 'Login ID / Account Number and Password are required',
+        };
+      }
+
+      // Initialize PostgreSQL persistence layer
+      try {
+        await this.persistence.init();
+      } catch (err: any) {
+        console.error('[TradingRuntime] [SessionInit] Database persistence initialization failed:', err?.message);
+        return {
+          success: false,
+          errorCode: 'DATABASE_UNAVAILABLE',
+          error: 'Trading server database connection unavailable',
+        };
+      }
+
+      try {
+        // Authoritative account resolution: check PostgreSQL first, then in-memory registry
+        resolvedAccount = await this.persistence.accounts.getAccount(loginId);
+        if (!resolvedAccount) {
+          resolvedAccount = this.accounts.getAccount(loginId);
+        }
+
+        if (!resolvedAccount) {
+          console.warn(`[TradingRuntime] [SessionInit] Trading account '${loginId}' not found for connection ${connectionId}`);
+          return {
+            success: false,
+            errorCode: 'ACCOUNT_NOT_FOUND',
+            error: `Trading account '${loginId}' not found`,
+          };
+        }
+
+        // Verify password against stored password or hash
+        const storedCredential = resolvedAccount.tradingPassword || resolvedAccount.passwordHash;
+        const defaultFallbackPassword = resolvedAccount.accountType === 'DEMO' ? 'demo' : 'Trading123!';
+        const isValidPassword = verifyTradingPassword(password, storedCredential || defaultFallbackPassword);
+
+        if (!isValidPassword) {
+          console.warn(`[TradingRuntime] [SessionInit] Invalid password provided for account '${loginId}'`);
+          return {
+            success: false,
+            errorCode: 'INVALID_CREDENTIALS',
+            error: 'Invalid login ID or account password',
+          };
+        }
+
+        // Account status and risk rules check
+        const normalizedStatus = normalizeAccountStatus(resolvedAccount.status, 'ACTIVE');
+        if (normalizedStatus === 'DISABLED') {
+          return {
+            success: false,
+            errorCode: 'ACCOUNT_DISABLED',
+            error: 'Trading account is disabled. Please contact broker support.',
+          };
+        }
+
+        if (normalizedStatus === 'SUSPENDED') {
+          return {
+            success: false,
+            errorCode: 'ACCOUNT_SUSPENDED',
+            error: 'Trading account is suspended. Trading operations are currently blocked.',
+          };
+        }
+
+        // READ_ONLY: user can view terminal, but trading actions are blocked
+        if (normalizedStatus === 'READ_ONLY') {
+          resolvedAccount.tradingEnabled = false;
+        }
+
+        resolvedAccount.sessionMode = 'TRADING_ACCOUNT';
+
+        // Recover persisted financial state into runtime in-memory engines
+        const hydrated = await this.persistence.hydrateAccountSession(resolvedAccount.id);
+        if (hydrated) {
+          this.accounts.hydrateAccount(hydrated.account, hydrated.ledger);
+          this.positions.hydratePositions(hydrated.positions);
+          this.orders.hydrateOrders(hydrated.orders);
+          this.executions.hydrateExecutions(hydrated.executions);
+        } else {
+          this.accounts.hydrateAccount(resolvedAccount, []);
+        }
+      } catch (err: any) {
+        console.error('[TradingRuntime] [SessionInit] Error during Trading Account authentication:', err?.message);
+        const errMsg = err?.message || '';
+        const isDbError = errMsg.includes('CIRCUITBREAKER') ||
+                          errMsg.includes('EMAXCONNSESSION') ||
+                          errMsg.includes('connection') ||
+                          errMsg.includes('timeout') ||
+                          errMsg.includes('pool') ||
+                          errMsg.includes('connect');
+        return {
+          success: false,
+          errorCode: isDbError ? 'DATABASE_UNAVAILABLE' : 'INTERNAL_ERROR',
+          error: isDbError ? 'Trading server database connection unavailable' : (err?.message || 'Authentication error'),
+        };
+      }
+    } else if (mode === 'EXTERNAL' || payload.token) {
       // MODE B — EXTERNAL / CRM-LAUNCHED SESSION
       console.log(`[TradingRuntime] [SessionInit] External session initialization requested for connection ${connectionId}`);
       const token = payload.token?.trim();
@@ -437,7 +580,16 @@ export class TradingRuntime {
       }
 
       // Initialize PostgreSQL persistence layer
-      await this.persistence.init();
+      try {
+        await this.persistence.init();
+      } catch (err: any) {
+        console.error('[TradingRuntime] [SessionInit] Database persistence initialization failed:', err?.message);
+        return {
+          success: false,
+          errorCode: 'DATABASE_UNAVAILABLE',
+          error: 'Trading server database connection unavailable',
+        };
+      }
 
       try {
         // Check if account exists under a different tenant for strict multi-tenant security isolation
@@ -491,10 +643,21 @@ export class TradingRuntime {
           this.accounts.hydrateAccount(resolvedAccount, []);
         }
       } catch (err: any) {
+        console.error('[TradingRuntime] [SessionInit] Database error during external account resolution:', err?.message);
+        const errMsg = err?.message || '';
+        const isDbError = errMsg.includes('CIRCUITBREAKER') ||
+                          errMsg.includes('EMAXCONNSESSION') ||
+                          errMsg.includes('connection') ||
+                          errMsg.includes('timeout') ||
+                          errMsg.includes('pool') ||
+                          errMsg.includes('connect') ||
+                          errMsg.includes('password authentication failed');
         return {
           success: false,
-          errorCode: 'UNAUTHORIZED',
-          error: err?.message || 'Failed to authenticate and resolve selected external account',
+          errorCode: isDbError ? 'DATABASE_UNAVAILABLE' : 'INTERNAL_ERROR',
+          error: isDbError
+            ? 'Trading server database connection unavailable'
+            : (err?.message || 'Failed to authenticate and resolve selected external account'),
         };
       }
     } else {

@@ -62,6 +62,18 @@ export class DatabaseClient implements IDatabaseClient {
       const databaseUrl = process.env.DATABASE_URL?.trim();
 
       if (databaseUrl) {
+        try {
+          const parsed = new URL(databaseUrl);
+          const isPoolerPort = parsed.port === '6543';
+          const hasProjectRef = parsed.username ? parsed.username.includes('.') : false;
+          console.log(`[DatabaseClient] Connecting to PostgreSQL at ${parsed.hostname}:${parsed.port || '5432'} (mode: ${isPoolerPort ? 'Transaction Pooler (6543)' : 'Session/Direct (5432)'}, userFormat: ${hasProjectRef ? 'project-scoped' : 'unscoped'})`);
+          if (isPoolerPort && !hasProjectRef) {
+            console.warn('[DatabaseClient] WARNING: Connecting to Supabase pooler on port 6543 requires username format "postgres.[project-ref]". Using unscoped username will fail authentication and trip Supavisor CIRCUITBREAKER.');
+          }
+        } catch {
+          // Ignore URL parsing errors
+        }
+
         // Connect to remote PostgreSQL via pg.Pool
         this.pgPool = new Pool({
           connectionString: databaseUrl,
@@ -74,6 +86,7 @@ export class DatabaseClient implements IDatabaseClient {
         const client = await this.pgPool.connect();
         try {
           await client.query('SELECT 1');
+          console.log('[DatabaseClient] PostgreSQL connection successfully established and verified.');
         } finally {
           client.release();
         }

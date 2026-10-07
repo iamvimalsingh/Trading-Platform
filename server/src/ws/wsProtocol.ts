@@ -51,9 +51,11 @@ export interface WsEnvelope<T = unknown> {
 
 // Client Payloads
 export interface SessionInitPayload {
-  mode?: SessionMode;          // 'DEMO' (default standalone) or 'EXTERNAL' (CRM launch)
+  mode?: SessionMode;          // 'DEMO' (default standalone), 'EXTERNAL' (CRM launch), or 'TRADING_ACCOUNT'
   token?: string;              // Signed external launch token (required for EXTERNAL mode)
   preferredAccountId?: string; // Optional: validated against token for EXTERNAL, or restricted to demo accounts for DEMO
+  loginId?: string;            // Login ID / Account Number for TRADING_ACCOUNT mode
+  password?: string;           // Trading password for TRADING_ACCOUNT mode
 }
 
 export interface SubscribeSymbolsPayload {
